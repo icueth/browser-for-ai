@@ -1,5 +1,10 @@
 # browser-for-ai (bfa)
 
+![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
+![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)
+![MCP](https://img.shields.io/badge/MCP-server-8A2BE2.svg)
+![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6.svg)
+
 A **CDP-native MCP server** that lets an AI agent (Claude Code and any other MCP
 client) drive a real Chrome browser at full depth — not just open pages and take
 screenshots, but read the network and console the way a human does with DevTools
@@ -317,3 +322,7 @@ npm run typecheck
 npm test          # unit + real-Chrome integration + in-memory MCP e2e
 npm run build
 ```
+
+## License
+
+[MIT](LICENSE)
