@@ -358,8 +358,12 @@ page_set_viewport { "width": 390, "height": 844 }   // บน session ที่�
   session ค้าง
 - `flow_replay` รีเพลย์เฉพาะ `http`/`https`, มี timeout ต่อ request, จำกัดรวม
   (60 วิ / 200 step), และไม่แตะ browser session สด
+- `net_get` แสดง header **ทุกตัว** ทั้ง request/response รวม custom signing header
+  (`x-api-key`, `x-signature`, `agent`, …) ไม่ใช่แค่ชุดที่รู้จัก
 - การตรวจ dependency และ redact secret เป็น heuristic — ตรวจโค้ดที่สร้างและ HAR ก่อน
-  แชร์หรือรันกับ production
+  แชร์หรือรันกับ production ค่าที่ **คำนวณ** และ bfa ย้อนกลับไม่ได้ (เช่นลายเซ็นแบบ
+  `MD5(secret + timestamp)`) จะคงเป็น literal — ถ้า `flow_replay` ไม่ผ่าน มักแปลว่ายังต้อง
+  สร้าง header นั้นเองในโค้ด
 
 ## การพัฒนา
 

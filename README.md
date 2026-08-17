@@ -368,8 +368,13 @@ proxies — bfa stays a local inspection tool.
   the session never hangs on one.
 - `flow_replay` only replays `http`/`https`, times out per request, is capped
   overall (60 s / 200 steps), and never touches the live browser session.
+- `net_get` shows **every** request/response header, including custom signing
+  headers (`x-api-key`, `x-signature`, `agent`, …) — not just a well-known subset.
 - Dependency detection and secret redaction are best-effort heuristics — review
   generated code and exported HAR before sharing or running against production.
+  A **computed** value bfa can't reverse (e.g. a signature like
+  `MD5(secret + timestamp)`) stays a literal; a failing `flow_replay` usually means
+  exactly such a header still needs to be reproduced in your own code.
 
 ## Development
 

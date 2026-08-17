@@ -32,17 +32,14 @@ export function slowTable(entries: NetEntry[]): string {
   return table(["method", "status", "ms", "url"], entries.map(slowRow));
 }
 
-const KEY_REQUEST_HEADERS = ["content-type", "accept", "authorization", "cookie", "user-agent", "origin", "referer"];
-const KEY_RESPONSE_HEADERS = ["content-type", "content-length", "cache-control", "set-cookie", "location"];
-
-function pickHeaders(headers: Record<string, string> | undefined, keys: string[]): string {
-  if (!headers) return "  (none)";
-  const lower = new Map(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
-  const lines = keys.flatMap((k) => {
-    const v = lower.get(k);
-    return v === undefined ? [] : [`  ${k}: ${v}`];
-  });
-  return lines.length > 0 ? lines.join("\n") : "  (none of the key headers present)";
+/** Render EVERY header as `name: value`. net_get is the full drill-down view: unlike the
+ *  compact net_list table, it must NOT hide custom/signing headers (x-api-key, x-signature,
+ *  agent, time, …) — those are exactly what you need to reproduce a signed request, and an
+ *  allowlist here silently makes synthesized clients look like they only send Authorization. */
+function allHeaders(headers: Record<string, string> | undefined): string {
+  const entries = headers ? Object.entries(headers) : [];
+  if (entries.length === 0) return "  (none)";
+  return entries.map(([k, v]) => `  ${k}: ${truncate(v, 2000)}`).join("\n");
 }
 
 export function netDetail(
@@ -59,7 +56,7 @@ export function netDetail(
   if (e.durationMs !== undefined) lines.push(`duration: ${Math.round(e.durationMs)}ms`);
   lines.push("");
   lines.push("request headers:");
-  lines.push(pickHeaders(e.requestHeaders, KEY_REQUEST_HEADERS));
+  lines.push(allHeaders(e.requestHeaders));
   if (e.hasPostData) {
     lines.push("");
     lines.push("request body:");
@@ -71,7 +68,7 @@ export function netDetail(
   } else if (e.status !== undefined) {
     lines.push(`response: ${e.status} ${e.statusText ?? ""} ${e.mimeType ?? ""}`.trim());
     lines.push("response headers:");
-    lines.push(pickHeaders(e.responseHeaders, KEY_RESPONSE_HEADERS));
+    lines.push(allHeaders(e.responseHeaders));
     lines.push("");
     lines.push("response body:");
     if (resBody === null) {
