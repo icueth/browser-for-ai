@@ -56,6 +56,10 @@ export class SessionManager {
         executablePath: resolveChromePath(),
         headless: opts.headless ?? false,
         userDataDir,
+        // null = don't force a device-metrics override; the page fills the real window instead of
+        // puppeteer's 800x600 default (which otherwise renders the site in a small top-left box).
+        // An explicit opts.viewport still overrides this via applyViewport below.
+        defaultViewport: null,
         args: ["--no-first-run", "--no-default-browser-check"],
         // This app owns teardown (see server.ts). @puppeteer/browsers' own SIGINT handler
         // calls process.exit(130) synchronously, which would pre-empt our async cleanup and
@@ -113,7 +117,9 @@ export class SessionManager {
     const port = opts.port ?? 9222;
     let browser: Browser;
     try {
-      browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${port}` });
+      // defaultViewport:null so the attached page keeps the real Chrome window size — without it
+      // puppeteer clamps the layout viewport to 800x600 and the site renders in a small corner.
+      browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${port}`, defaultViewport: null });
     } catch (err) {
       // The overwhelmingly common failure is "nothing is listening on the debug port". Puppeteer
       // reports it as an opaque "fetch failed"; turn that into the exact fix, since neither the

@@ -267,4 +267,16 @@ describe.skipIf(!chromeAvailable)("SessionManager viewport", () => {
     expect(st.viewport?.width).toBe(412);
     expect(st.viewport?.height).toBe(915);
   });
+
+  it("applies no forced viewport override on a plain session — it tracks the real window", async () => {
+    const info = await mgr.launch({ mode: "fresh", headless: true, url: fixture.url });
+    const page = mgr.pageFor(info.sessionId);
+    // defaultViewport:null → puppeteer sets NO device-metrics override (page.viewport() is null),
+    // so the layout viewport tracks the actual window instead of the old fixed 800x600 clamp that
+    // rendered sites in a small top-left box in headful/attach windows.
+    expect(page.viewport()).toBeNull();
+    // Sanity: the page still has a live, positive layout width (whatever the window is).
+    const innerWidth = (await page.evaluate(() => window.innerWidth)) as number;
+    expect(innerWidth).toBeGreaterThan(0);
+  });
 });
