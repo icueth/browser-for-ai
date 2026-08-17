@@ -305,6 +305,65 @@ Attaching requires Chrome to have been started with `--remote-debugging-port`.
 
 ---
 
+## Cookbook
+
+Real end-to-end flows the toolset was built for.
+
+### A. Debug a slow or hung page
+
+```jsonc
+browser_launch { "mode": "fresh", "url": "https://myapp.com" }
+net_pending                      // the request that never finishes → the hang
+net_slow { "thresholdMs": 1000 } // finished-but-slow calls, slowest first
+net_failures                     // 4xx/5xx + transport errors
+console_errors                   // the thrown stack trace
+net_get { "url": "/api/user" }   // the failing call in full (headers + bodies)
+```
+
+### B. Reverse-engineer an API into runnable code
+
+```jsonc
+browser_launch { "mode": "fresh", "url": "https://app.com/login" }
+flow_mark { "label": "login+fetch" }
+page_fill { "fields": [
+  { "selector": "#user", "value": "me" },
+  { "selector": "#pass", "value": "pw" }
+]}
+page_click { "selector": "#submit" }        // fires login → authenticated calls
+flow_synthesize { "target": "python" }      // code with the token chained in
+flow_replay                                  // ✓/✗ per call — verified reproduction
+```
+
+### C. Stay logged in across runs
+
+```jsonc
+// first run, after logging in:
+session_save { "name": "myapp" }
+// any later run:
+browser_launch { "mode": "fresh" }
+session_restore { "name": "myapp" }          // back in, no re-login
+```
+
+### D. Drive a canvas / WebGL app
+
+```jsonc
+browser_launch { "mode": "fresh", "incognito": true, "url": "https://game.example",
+                 "viewport": { "width": 390, "height": 844 } }  // portrait
+page_click_at { "x": 195, "y": 700 }         // press a button drawn on the canvas
+net_ws                                        // read the app's WebSocket frames
+net_pending                                   // catch asset-load hangs
+```
+
+### E. Mock an endpoint to test an edge case
+
+```jsonc
+net_intercept_add { "urlIncludes": "/api/config", "action": "mock",
+                    "status": 200, "body": "{\"feature_x\":true}" }
+browser_hard_reload
+net_get { "url": "/api/config" }             // served the mocked body
+net_intercept_clear
+```
+
 ## Notes & limitations
 
 - The agent gets whatever the attached/launched browser can see. Treat an
