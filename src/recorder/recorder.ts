@@ -34,7 +34,11 @@ export class Recorder {
     // Register handlers BEFORE enabling the domains so events emitted during the
     // enable round-trips (e.g. attaching to an already-live page) aren't dropped.
     client.on("Network.requestWillBeSent", (e) => this.safe(() => this.network.requestWillBeSent(this.next(), e as never)));
+    // ExtraInfo events carry the complete on-the-wire headers (Cookie + network-stack additions)
+    // that requestWillBeSent/responseReceived can omit — merge them so captures are faithful.
+    client.on("Network.requestWillBeSentExtraInfo", (e) => this.safe(() => this.network.requestWillBeSentExtraInfo(e as never)));
     client.on("Network.responseReceived", (e) => this.safe(() => this.network.responseReceived(e as never)));
+    client.on("Network.responseReceivedExtraInfo", (e) => this.safe(() => this.network.responseReceivedExtraInfo(e as never)));
     client.on("Network.loadingFinished", (e) => this.safe(() => this.network.loadingFinished(e as never)));
     client.on("Network.loadingFailed", (e) => this.safe(() => this.network.loadingFailed(e as never)));
     client.on("Network.webSocketCreated", (e) => this.safe(() => this.network.webSocketCreated(this.next(), e as never)));

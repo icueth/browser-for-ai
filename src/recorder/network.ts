@@ -9,6 +9,28 @@ type FinEvt = { requestId: string; encodedDataLength?: number; timestamp?: numbe
 type FailEvt = { requestId: string; errorText?: string; blockedReason?: string; canceled?: boolean; timestamp?: number };
 type WsCreatedEvt = { requestId: string; url: string };
 type WsFrameEvt = { requestId: string; response: { opcode: number; payloadData: string } };
+// ExtraInfo events carry the ACTUAL on-the-wire header set (Cookie, and anything the network
+// stack injects) which the plain requestWillBeSent/responseReceived can omit or leave provisional.
+type ReqExtraEvt = { requestId: string; headers?: Record<string, string> };
+type ResExtraEvt = { requestId: string; headers?: Record<string, string> };
+
+/** Case-insensitive header merge: `extra` (the on-the-wire ExtraInfo set) overrides `base` on
+ *  same-name headers and contributes the ones base never saw (e.g. Cookie), while keeping base's
+ *  original key casing so a single header can never appear twice under two casings. */
+function mergeHeaders(base: Record<string, string>, extra: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = { ...base };
+  const lowerToKey = new Map(Object.keys(base).map((k) => [k.toLowerCase(), k] as const));
+  for (const [k, v] of Object.entries(extra)) {
+    const existing = lowerToKey.get(k.toLowerCase());
+    if (existing !== undefined) {
+      out[existing] = v;
+    } else {
+      out[k] = v;
+      lowerToKey.set(k.toLowerCase(), k);
+    }
+  }
+  return out;
+}
 
 export class NetworkBuffer {
   private entries = new Map<string, NetEntry>();
@@ -16,6 +38,10 @@ export class NetworkBuffer {
   private ws = new Map<string, WsEntry>();
   private wsOrder: string[] = [];
   private seqMax = 0;
+  // ExtraInfo can arrive before OR after its request/response, so headers seen early are held
+  // here until the entry exists, then merged in. Bounded so an orphan id can't leak forever.
+  private pendingReqExtra = new Map<string, Record<string, string>>();
+  private pendingResExtra = new Map<string, Record<string, string>>();
 
   requestWillBeSent(seq: number, e: ReqEvt): void {
     this.seqMax = Math.max(this.seqMax, seq);
@@ -36,6 +62,13 @@ export class NetworkBuffer {
       ...(redirects.length > 0 ? { redirects } : {}),
     });
     if (!this.order.includes(e.requestId)) this.order.push(e.requestId);
+    // Drain any ExtraInfo that raced ahead of this request.
+    const extra = this.pendingReqExtra.get(e.requestId);
+    if (extra) {
+      this.pendingReqExtra.delete(e.requestId);
+      const n = this.entries.get(e.requestId)!;
+      n.requestHeaders = mergeHeaders(n.requestHeaders, extra);
+    }
   }
 
   responseReceived(e: ResEvt): void {
@@ -43,6 +76,41 @@ export class NetworkBuffer {
     n.status = e.response.status; n.statusText = e.response.statusText;
     n.mimeType = e.response.mimeType; n.responseHeaders = e.response.headers ?? {};
     n.fromCache = !!e.response.fromDiskCache;
+    // responseReceivedExtraInfo usually precedes this — fold in the raw wire headers (all
+    // Set-Cookie values, any header responseReceived normalized away).
+    const extra = this.pendingResExtra.get(e.requestId);
+    if (extra) {
+      this.pendingResExtra.delete(e.requestId);
+      n.responseHeaders = mergeHeaders(n.responseHeaders, extra);
+    }
+  }
+
+  /** Network.requestWillBeSentExtraInfo — the real request headers as sent (Cookie included). */
+  requestWillBeSentExtraInfo(e: ReqExtraEvt): void {
+    if (!e.headers) return;
+    const n = this.entries.get(e.requestId);
+    if (n) {
+      n.requestHeaders = mergeHeaders(n.requestHeaders, e.headers);
+    } else {
+      this.stash(this.pendingReqExtra, e.requestId, e.headers);
+    }
+  }
+
+  /** Network.responseReceivedExtraInfo — the raw response headers (every Set-Cookie, etc.). */
+  responseReceivedExtraInfo(e: ResExtraEvt): void {
+    if (!e.headers) return;
+    const n = this.entries.get(e.requestId);
+    if (n && n.responseHeaders !== undefined) {
+      n.responseHeaders = mergeHeaders(n.responseHeaders, e.headers);
+    } else {
+      this.stash(this.pendingResExtra, e.requestId, e.headers);
+    }
+  }
+
+  private stash(map: Map<string, Record<string, string>>, id: string, headers: Record<string, string>): void {
+    if (map.size >= 1024 && !map.has(id)) map.delete(map.keys().next().value as string);
+    const prev = map.get(id);
+    map.set(id, prev ? mergeHeaders(prev, headers) : headers);
   }
 
   loadingFinished(e: FinEvt): void {

@@ -25,8 +25,9 @@ The things a screenshot-only browser tool can't do:
   response becomes a variable the next request re-uses, not a baked-in literal.
   `flow_replay` then runs it for real to prove the reversal reproduces.
 - **🔬 See the whole network.** Full request/response **bodies** (text *and* binary
-  base64), headers, timing, redirect hops, and WebSocket frames — surfaced by the
-  exact question you're asking: `failures`, `pending` (hangs), `slow`.
+  base64), the **complete on-the-wire headers** (`Cookie` and custom signing headers
+  included, merged from CDP ExtraInfo), timing, redirect hops, and WebSocket frames —
+  surfaced by the exact question you're asking: `failures`, `pending` (hangs), `slow`.
 - **🎮 Drive anything.** Ref / CSS interaction *and* raw **coordinate + touch**
   for `<canvas>` / WebGL surfaces with no DOM. Every action reports the
   network / console / URL **delta** it caused.
@@ -368,8 +369,10 @@ proxies — bfa stays a local inspection tool.
   the session never hangs on one.
 - `flow_replay` only replays `http`/`https`, times out per request, is capped
   overall (60 s / 200 steps), and never touches the live browser session.
-- `net_get` shows **every** request/response header, including custom signing
-  headers (`x-api-key`, `x-signature`, `agent`, …) — not just a well-known subset.
+- Headers are captured from the **actual wire** (CDP ExtraInfo), so `Cookie` and
+  network-added headers are recorded — not just what `requestWillBeSent` first saw —
+  and `net_get` shows **every** one, including custom signing headers
+  (`x-api-key`, `x-signature`, `agent`, …), not just a well-known subset.
 - Dependency detection and secret redaction are best-effort heuristics — review
   generated code and exported HAR before sharing or running against production.
   A **computed** value bfa can't reverse (e.g. a signature like

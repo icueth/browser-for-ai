@@ -23,8 +23,9 @@
   ข้าม call อัตโนมัติ** — token ที่ได้จาก response แรกจะกลายเป็นตัวแปรที่ request
   ถัดไปดึงไปใช้ ไม่ใช่ค่า literal ฝังตาย จากนั้น `flow_replay` รันจริงเพื่อพิสูจน์ว่าใช้ได้
 - **🔬 เห็น network ทั้งหมด** — **body เต็ม** ทั้ง request/response (ทั้ง text และ
-  binary base64), header, timing, redirect, และเฟรม WebSocket — เรียกดูได้ตรงคำถาม:
-  `failures`, `pending` (ค้าง), `slow`
+  binary base64), **header ครบตามที่ส่งจริงบนสาย** (รวม `Cookie` และ custom signing
+  header, merge จาก CDP ExtraInfo), timing, redirect, และเฟรม WebSocket — เรียกดูได้ตรง
+  คำถาม: `failures`, `pending` (ค้าง), `slow`
 - **🎮 ขับได้ทุกอย่าง** — ทั้ง ref/CSS และ **พิกัด + สัมผัส** สำหรับ `<canvas>` / WebGL
   ที่ไม่มี DOM ให้จับ ทุก action รายงาน **delta** (network/console/URL) ที่เกิดขึ้น
 - **🧪 ปั้น traffic ได้** — block / mock / แก้ request และ **throttle** เป็น Slow 3G /
@@ -358,8 +359,9 @@ page_set_viewport { "width": 390, "height": 844 }   // บน session ที่�
   session ค้าง
 - `flow_replay` รีเพลย์เฉพาะ `http`/`https`, มี timeout ต่อ request, จำกัดรวม
   (60 วิ / 200 step), และไม่แตะ browser session สด
-- `net_get` แสดง header **ทุกตัว** ทั้ง request/response รวม custom signing header
-  (`x-api-key`, `x-signature`, `agent`, …) ไม่ใช่แค่ชุดที่รู้จัก
+- header ถูกเก็บจาก **สายจริง** (CDP ExtraInfo) จึงได้ `Cookie` และ header ที่ network
+  เติม ไม่ใช่แค่ที่ `requestWillBeSent` เห็นตอนแรก และ `net_get` แสดง **ทุกตัว** รวม
+  custom signing header (`x-api-key`, `x-signature`, `agent`, …) ไม่ใช่แค่ชุดที่รู้จัก
 - การตรวจ dependency และ redact secret เป็น heuristic — ตรวจโค้ดที่สร้างและ HAR ก่อน
   แชร์หรือรันกับ production ค่าที่ **คำนวณ** และ bfa ย้อนกลับไม่ได้ (เช่นลายเซ็นแบบ
   `MD5(secret + timestamp)`) จะคงเป็น literal — ถ้า `flow_replay` ไม่ผ่าน มักแปลว่ายังต้อง
