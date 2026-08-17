@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Launch the user's Chrome with a remote-debugging port so bfa can attach
-# (mode="attach"). Uses a dedicated profile by default; pass a real profile
-# dir as $2 to reuse existing logins.
+# Launch Chrome with a remote-debugging port so bfa can attach (mode="attach").
+# Uses a dedicated profile by default. Pass a profile dir as $2 to reuse logins —
+# but it must be a NON-DEFAULT dir (e.g. a copy of your profile): Chrome 136+
+# silently refuses the debug port on the live default profile, and a second Chrome
+# on a dir already in use collides (one process per user-data-dir).
 set -euo pipefail
 
 PORT="${1:-9222}"

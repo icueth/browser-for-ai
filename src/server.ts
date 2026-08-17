@@ -21,8 +21,24 @@ import { registerPersistTools } from "./tools/persist";
 import { registerUploadTools } from "./tools/upload";
 import { registerEmulateTools } from "./tools/emulate";
 
+const BFA_INSTRUCTIONS = [
+  "browser-for-ai drives a real Chrome over CDP for deep inspection and API-flow reverse-engineering.",
+  "",
+  "Choosing how to open the browser (browser_launch):",
+  '• Most tasks → mode:"fresh" (add incognito:true for a clean slate). A throwaway Chrome, no setup — use for',
+  "  reverse-engineering a public flow or any site that does not need your existing login.",
+  '• Need real logins / a human-looking browser (navigator.webdriver=false, real profile & fingerprint) →',
+  '  mode:"attach", port:9222, AFTER the user starts Chrome with `bin/bfa-chrome 9222` (Chrome 136+ needs a',
+  "  non-default profile, which bfa-chrome uses). You cannot attach to an already-open normal Chrome — no debug port.",
+  "",
+  "Typical loop: page_goto → read with net_*/console_*/page_snapshot → act with page_click/type/fill/upload →",
+  "reverse an API with flow_mark → flow_synthesize (curl/ts/go/python) → flow_replay to verify. net_get and",
+  "flow_export show the COMPLETE on-the-wire headers (Cookie + custom signing headers); a failing flow_replay",
+  "usually means a computed header (e.g. a signature) still needs reproducing in your own code.",
+].join("\n");
+
 export function createServer(): { server: McpServer; mgr: SessionManager } {
-  const server = new McpServer({ name: "browser-for-ai", version: "0.1.0" });
+  const server = new McpServer({ name: "browser-for-ai", version: "0.1.0" }, { instructions: BFA_INSTRUCTIONS });
   const mgr = new SessionManager();
   registerBrowserTools(server, mgr);
   registerPageTools(server, mgr);

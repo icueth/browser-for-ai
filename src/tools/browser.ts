@@ -9,7 +9,15 @@ export function registerBrowserTools(server: McpServer, mgr: SessionManager): vo
     "browser_launch",
     {
       description:
-        "Launch a fresh browser session or attach to a running Chrome (started with --remote-debugging-port). Supports multiple concurrent sessions and incognito. In attach mode only `port` is used — `profile`, `headless` and `incognito` apply to fresh mode only and are ignored when attaching.",
+        "Open a browser session. Choose the mode by what the task needs:\n" +
+        '• mode:"fresh" (default choice) — launch our own throwaway Chrome; add incognito:true for a clean slate. ' +
+        "Best for reverse-engineering a public flow or any site that does NOT need your existing login. No setup.\n" +
+        '• mode:"attach" — connect to a Chrome the user already started with a debug port (default 9222). Use when you ' +
+        "need REAL logins/cookies, or a human-looking browser (navigator.webdriver=false, real profile & fingerprint, " +
+        "passes basic bot checks). Requires starting Chrome first: `bin/bfa-chrome 9222` (Chrome 136+ needs a non-default " +
+        "profile — bfa-chrome handles that). You canNOT attach to an already-open normal Chrome; it has no debug port.\n" +
+        "Multiple concurrent sessions are supported. In attach mode only `port` is used — `profile`, `headless`, " +
+        "`incognito` and `viewport` apply to fresh mode only.",
       inputSchema: {
         mode: z.enum(["fresh", "attach"]).describe("fresh = launch our own; attach = connect to a debug-port Chrome"),
         url: z.string().url().optional().describe("optional URL to open immediately"),

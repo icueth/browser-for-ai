@@ -111,9 +111,24 @@ export class SessionManager {
 
   private async attach(opts: LaunchOptions): Promise<SessionInfo> {
     const port = opts.port ?? 9222;
-    const browser: Browser = await puppeteer.connect({
-      browserURL: `http://127.0.0.1:${port}`,
-    });
+    let browser: Browser;
+    try {
+      browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${port}` });
+    } catch (err) {
+      // The overwhelmingly common failure is "nothing is listening on the debug port". Puppeteer
+      // reports it as an opaque "fetch failed"; turn that into the exact fix, since neither the
+      // agent nor the human can guess that a normal Chrome has no port (and Chrome 136+ refuses
+      // one on the default profile).
+      throw new Error(
+        `cannot attach: no Chrome debug endpoint on port ${port}. A normally-opened Chrome has no ` +
+          `debug port, and Chrome 136+ refuses one on the default profile — so first start a SEPARATE ` +
+          `Chrome with its own profile, then retry:\n` +
+          `  <repo>/bin/bfa-chrome ${port}     # dedicated profile ~/.bfa/attach-profile; log in once\n` +
+          `  browser_launch { "mode": "attach", "port": ${port} }\n` +
+          `To reuse existing logins, point bfa-chrome at a COPY of your Chrome profile dir ` +
+          `(a non-default --user-data-dir). [${err instanceof Error ? err.message : String(err)}]`,
+      );
+    }
     // Same shape as launchFresh: a failure after connect() (e.g. goto on a bad URL) would
     // otherwise leak the CDP connection, since nothing holds a reference to `browser` yet.
     // We only disconnect — never close — because we do not own this browser.

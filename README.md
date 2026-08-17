@@ -324,20 +324,41 @@ games listening for mouse input. For touch-only games, set the viewport
 
 ---
 
+## Which mode do I want?
+
+- **`fresh`** (default) — a throwaway Chrome, zero setup. Use for reverse-engineering
+  a public flow or any site that does **not** need your existing login.
+- **`attach`** — connect to a Chrome you started with a debug port. Use when you need
+  **real logins/cookies** or a **human-looking** browser: `navigator.webdriver` is
+  `false`, real profile & fingerprint, so it passes basic bot checks that a
+  puppeteer-launched Chrome fails. Setup below.
+
 ## Attach to a real, logged-in Chrome
 
+A normally-opened Chrome has **no** debug port, and **Chrome 136+ refuses one on the
+*default* profile** (an anti-cookie-theft hardening) — so attach always uses a
+*separate* profile:
+
 ```bash
-./bin/bfa-chrome 9222            # dedicated profile
-./bin/bfa-chrome 9222 "$HOME/Library/Application Support/Google/Chrome"  # your real profile
+# dedicated profile (recommended) — a window opens; log in there once, it persists
+./bin/bfa-chrome 9222
+
+# …or reuse your existing logins via a COPY of your profile (a non-default dir)
+cp -R "$HOME/Library/Application Support/Google/Chrome" "$HOME/.bfa/real-copy"
+./bin/bfa-chrome 9222 "$HOME/.bfa/real-copy"
 ```
 
-Then: `browser_launch { "mode": "attach", "port": 9222 }`.
+Then: `browser_launch { "mode": "attach", "port": 9222 }`. (If the port isn't up, the
+tool's error tells you this exact recipe.)
 
-> ⚠️ **Pointing `bfa-chrome` at your real Chrome profile hands the agent every
-> logged-in session on your machine** — email, cloud consoles, banking, source
-> control. It can read those pages and act as you. Prefer the dedicated-profile
-> form; use the real profile only when you need an existing login and accept that
-> blast radius.
+> ⚠️ A **copied real profile** hands the agent every logged-in session it contains —
+> email, cloud consoles, banking, source control. It can read those pages and act as
+> you. Prefer the dedicated profile; use a real-profile copy only when you need those
+> logins and accept that blast radius.
+>
+> Do **not** point `bfa-chrome` at your live default profile: on Chrome 136+ the debug
+> port silently won't open, and it would also collide with your running Chrome
+> (one process per profile dir).
 
 ---
 

@@ -316,19 +316,37 @@ page_set_viewport { "width": 390, "height": 844 }   // บน session ที่�
 
 ---
 
+## เลือกโหมดไหนดี?
+
+- **`fresh`** (ค่าเริ่มต้น) — Chrome ชั่วคราว ไม่ต้อง setup ใช้แกะ flow เว็บสาธารณะ หรือเว็บที่
+  **ไม่ต้อง**ใช้ login เดิมของคุณ
+- **`attach`** — เชื่อมกับ Chrome ที่คุณเปิดด้วย debug port ใช้เมื่อต้องการ **login/cookie จริง**
+  หรือ browser ที่**ดูเหมือนคนจริง**: `navigator.webdriver` เป็น `false`, profile/fingerprint จริง
+  จึงผ่าน bot-check พื้นฐานที่ Chrome แบบ puppeteer-launch ไม่ผ่าน (วิธี setup ด้านล่าง)
+
 ## Attach เข้า Chrome ที่ล็อกอินอยู่จริง
 
+Chrome ที่เปิดปกติ**ไม่มี** debug port และ **Chrome 136+ ปฏิเสธ debug port บน profile *หลัก***
+(มาตรการกันมัลแวร์ขโมย cookie) — attach จึงต้องใช้ profile **แยก** เสมอ:
+
 ```bash
-./bin/bfa-chrome 9222            # profile เฉพาะ
-./bin/bfa-chrome 9222 "$HOME/Library/Application Support/Google/Chrome"  # profile จริงของคุณ
+# profile เฉพาะ (แนะนำ) — หน้าต่างเด้งมา ล็อกอินในนั้นครั้งเดียว จำไว้เลย
+./bin/bfa-chrome 9222
+
+# …หรือใช้ login เดิม ด้วยการ COPY profile ไป dir ใหม่ (ไม่ใช่ default)
+cp -R "$HOME/Library/Application Support/Google/Chrome" "$HOME/.bfa/real-copy"
+./bin/bfa-chrome 9222 "$HOME/.bfa/real-copy"
 ```
 
-แล้ว: `browser_launch { "mode": "attach", "port": 9222 }`
+แล้ว: `browser_launch { "mode": "attach", "port": 9222 }` (ถ้า port ยังไม่ขึ้น error ของ tool จะ
+บอกสูตรนี้ให้เอง)
 
-> ⚠️ **การชี้ `bfa-chrome` ไปที่ Chrome profile จริง = มอบทุก session ที่ล็อกอินอยู่ใน
-> เครื่องให้ agent** — อีเมล, cloud console, ธนาคาร, source control มันอ่านหน้าเหล่านั้น
-> และทำแทนคุณได้ แนะนำให้ใช้แบบ profile เฉพาะ ใช้ profile จริงเฉพาะตอนจำเป็นและรับ
-> ความเสี่ยงนั้นได้
+> ⚠️ **profile จริงที่ copy มา = มอบทุก session ที่ล็อกอินอยู่ให้ agent** — อีเมล, cloud console,
+> ธนาคาร, source control มันอ่าน/ทำแทนคุณได้ แนะนำ profile เฉพาะ ใช้ copy ของ profile จริงเฉพาะ
+> ตอนจำเป็นและรับความเสี่ยงได้
+>
+> **อย่า**ชี้ `bfa-chrome` ไป default profile ที่ใช้อยู่: บน Chrome 136+ debug port จะไม่เปิดเงียบๆ
+> และชนกับ Chrome ที่รันอยู่ (หนึ่ง process ต่อหนึ่ง profile dir)
 
 ---
 
