@@ -16,6 +16,10 @@ const TEMP_PREFIX = "bfa-";
  *  (page.mouse.click / page_click_at) drive canvas games that listen for mouse input;
  *  set hasTouch:true only for games that require touch. */
 async function applyViewport(page: Page, opts: LaunchOptions): Promise<void> {
+  // No explicit viewport → do nothing: with defaultViewport:null (see launch/connect) puppeteer
+  // sets no device-metrics override, so the page tracks the real window. (A stale override left by
+  // a DIFFERENT still-connected CDP client can't be cleared from here — it is per-session and only
+  // clears when that client disconnects; that's why a leftover old session keeps a page clamped.)
   if (!opts.viewport) return;
   await page.setViewport({
     width: opts.viewport.width,
