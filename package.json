@@ -1,0 +1,25 @@
+{
+  "name": "browser-for-ai",
+  "version": "0.1.0",
+  "description": "CDP-native MCP server that lets Claude use a browser at full depth",
+  "type": "module",
+  "bin": { "browser-for-ai": "dist/server.js" },
+  "files": ["dist", "bin"],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.19.0",
+    "puppeteer-core": "^24.15.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

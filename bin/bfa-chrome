@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Launch the user's Chrome with a remote-debugging port so bfa can attach
+# (mode="attach"). Uses a dedicated profile by default; pass a real profile
+# dir as $2 to reuse existing logins.
+set -euo pipefail
+
+PORT="${1:-9222}"
+PROFILE="${2:-$HOME/.bfa/attach-profile}"
+CHROME="${BFA_CHROME_PATH:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
+
+echo "Launching Chrome on debug port $PORT (profile: $PROFILE)"
+exec "$CHROME" \
+  --remote-debugging-port="$PORT" \
+  --user-data-dir="$PROFILE" \
+  --no-first-run \
+  --no-default-browser-check
