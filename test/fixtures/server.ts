@@ -12,6 +12,7 @@ const PAGE = `<!doctype html><html><head><title>BFA Fixture</title></head>
   <button id="submit">Login</button>
 </form>
 <div id="result"></div>
+<input type="file" id="fileup">
 <div id="pad" style="width:220px;height:140px"></div>
 <script>
   document.getElementById("pad").addEventListener("click", (e) => {

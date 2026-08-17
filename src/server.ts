@@ -18,6 +18,8 @@ import { registerScreenshotTools } from "./tools/screenshot";
 import { registerFlowTools } from "./tools/flow";
 import { registerMouseTools } from "./tools/mouse";
 import { registerPersistTools } from "./tools/persist";
+import { registerUploadTools } from "./tools/upload";
+import { registerEmulateTools } from "./tools/emulate";
 
 export function createServer(): { server: McpServer; mgr: SessionManager } {
   const server = new McpServer({ name: "browser-for-ai", version: "0.1.0" });
@@ -37,6 +39,8 @@ export function createServer(): { server: McpServer; mgr: SessionManager } {
   registerFlowTools(server, mgr);
   registerMouseTools(server, mgr);
   registerPersistTools(server, mgr);
+  registerUploadTools(server, mgr);
+  registerEmulateTools(server, mgr);
   return { server, mgr };
 }
 
