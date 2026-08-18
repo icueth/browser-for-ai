@@ -373,6 +373,16 @@ cp -R "$HOME/Library/Application Support/Google/Chrome" "$HOME/.bfa/real-copy"
 
 - agent เห็นทุกอย่างที่ browser ที่ launch/attach เห็น ให้ถือว่า Chrome profile จริงที่
   attach = เข้าถึงทุกบัญชีที่ล็อกอินอยู่
+- **คง login ถาวร:** profile แบบ **ตั้งชื่อ** ใช้ OS keystore จริง cookie/login จึงอยู่ข้าม
+  ครั้งได้ (default ของ puppeteer `--use-mock-keychain` / `--password-store=basic` ถอดรหัส
+  cookie ที่เข้ารหัสด้วย keystore จริงไม่ได้ → Chrome ล้าง cookie ทั้งชุด = หลุด login เงียบๆ;
+  bfa ตัด 2 flag นี้ให้ named profile ครั้งแรกอาจ prompt ขอ keychain) profile ชั่วคราวไม่คงค่า
+  และคง mock store ไว้
+- **Automation fingerprint:** Chrome แบบ `fresh` (เปิดด้วย puppeteer) มี
+  `navigator.webdriver === true` + automation switch → bot-detection จับได้ ส่วน **`attach`**
+  เป็น browser ธรรมดา (`navigator.webdriver === false`, profile/fingerprint จริง) — bfa **ไม่มี**
+  fingerprint spoofing / anti-bot evasion โดยตั้งใจ ถ้าเว็บบล็อก automation และคุณมีสิทธิ์ใช้งาน
+  ที่นั่น ให้ใช้ `attach` (browser จริง) ไม่ใช่ trick ปลอม fingerprint
 - native dialog (`alert` / `confirm` / `beforeunload`) จะถูก **auto-dismiss** เพื่อไม่ให้
   session ค้าง
 - `flow_replay` รีเพลย์เฉพาะ `http`/`https`, มี timeout ต่อ request, จำกัดรวม

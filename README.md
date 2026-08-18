@@ -386,6 +386,17 @@ proxies — bfa stays a local inspection tool.
 
 - The agent sees whatever the attached/launched browser sees. Treat an attached
   real-profile Chrome as full access to your logged-in accounts.
+- **Persistent logins:** a **named** profile keeps the real OS keystore, so its
+  cookies/logins survive across launches. (Puppeteer's default `--use-mock-keychain` /
+  `--password-store=basic` can't decrypt real-keystore cookies and makes Chrome wipe the
+  whole jar — a silent logout; bfa drops those for named profiles. The first launch may
+  prompt for keychain access.) Ephemeral profiles don't persist and keep the mock store.
+- **Automation fingerprint:** a `fresh` (puppeteer-launched) Chrome has
+  `navigator.webdriver === true` and automation switches, so bot-detection can spot it.
+  An **`attach`ed** Chrome is an ordinary browser (`navigator.webdriver === false`, real
+  profile & fingerprint). bfa ships **no** fingerprint spoofing or anti-bot evasion by
+  design — if a site blocks automation and you're authorized to operate there, use
+  `attach` (a genuine browser), not a spoofing trick.
 - Native dialogs (`alert` / `confirm` / `beforeunload`) are **auto-dismissed** so
   the session never hangs on one.
 - `flow_replay` only replays `http`/`https`, times out per request, is capped

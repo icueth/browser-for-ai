@@ -30,6 +30,17 @@ async function applyViewport(page: Page, opts: LaunchOptions): Promise<void> {
   });
 }
 
+/** Puppeteer's default launch args include `--use-mock-keychain` (macOS) and `--password-store=basic`,
+ *  which make Chrome unable to decrypt cookies encrypted with the REAL OS keystore. On a PERSISTENT
+ *  (named) profile — which may hold logins written by your real Chrome — Chrome reacts by discarding
+ *  the entire cookie jar, silently logging you out. Drop those two defaults for named profiles so
+ *  real-keystore cookies survive across launches. Ephemeral (unnamed) profiles keep the defaults:
+ *  nothing to preserve there, and it avoids an OS keychain prompt. Exported for unit testing. */
+export function keychainOverrides(profileName: string | undefined): { ignoreDefaultArgs?: string[] } {
+  if (!profileName) return {};
+  return { ignoreDefaultArgs: ["--use-mock-keychain", "--password-store=basic"] };
+}
+
 export class SessionManager {
   private registry = new SessionRegistry();
   private flowMarks = new Map<SessionId, number>();
@@ -64,6 +75,8 @@ export class SessionManager {
         // puppeteer's 800x600 default (which otherwise renders the site in a small top-left box).
         // An explicit opts.viewport still overrides this via applyViewport below.
         defaultViewport: null,
+        // Named profiles keep the real OS keystore so existing logins/cookies aren't wiped on launch.
+        ...keychainOverrides(profileName),
         args: ["--no-first-run", "--no-default-browser-check"],
         // This app owns teardown (see server.ts). @puppeteer/browsers' own SIGINT handler
         // calls process.exit(130) synchronously, which would pre-empt our async cleanup and
