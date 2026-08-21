@@ -4,7 +4,7 @@
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)
 ![MCP](https://img.shields.io/badge/MCP-server-8A2BE2.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6.svg)
-![Tools](https://img.shields.io/badge/tools-44-0a8fa6.svg)
+![Tools](https://img.shields.io/badge/tools-46-0a8fa6.svg)
 
 [English](README.md) · **ภาษาไทย**
 
@@ -113,7 +113,7 @@ browser_close { "all": true }
 
 ---
 
-## รายการ tools ทั้งหมด (44)
+## รายการ tools ทั้งหมด (46)
 
 ### Session & lifecycle
 | tool | หน้าที่ |
@@ -133,6 +133,8 @@ browser_close { "all": true }
 | `page_state` | url, title, readyState, viewport |
 | `page_set_viewport` | ปรับ viewport ของ session |
 | `page_snapshot` | DOM แบบย่อ + ติด **ref** ทุก element |
+| `page_find` | หา element ด้วย text / ARIA role / CSS → คืน ref (เจาะจงกว่า snapshot) |
+| `page_read` | อ่าน/ค้น **ข้อความเนื้อหา** ในหน้า (เลือก selector + query ได้) |
 | `page_observe` | delta ตั้งแต่ครั้งก่อน (console/network/URL/DOM) |
 | `page_screenshot` | PNG ของ viewport / เต็มหน้า / element เดียว |
 | `page_eval` | รัน JS ในหน้า แล้วคืนค่า |

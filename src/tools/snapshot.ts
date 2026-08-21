@@ -6,10 +6,10 @@ import { guard } from "./guard";
 
 const DEFAULT_LIMIT = 200;
 
-const INTERACTIVE_SELECTOR =
+export const INTERACTIVE_SELECTOR =
   'a[href], button, input:not([type=hidden]), select, textarea, [role=button], [role=link], [role=tab], [role=menuitem], [contenteditable=""], [contenteditable=true], [onclick]';
 
-interface SnapshotItem {
+export interface SnapshotItem {
   ref: string;
   tag: string;
   type?: string;
@@ -19,34 +19,47 @@ interface SnapshotItem {
   href?: string;
 }
 
+/** Options for collectSnapshot. `text`/`role` are optional filters (null = no filter); `deepest`
+ *  drops a match that contains another match (so a text search returns the innermost element). */
+export interface CollectOpts {
+  selector: string;
+  text: string | null;
+  role: string | null;
+  deepest: boolean;
+}
+
 /** Runs entirely inside the page via page.evaluate — must be self-contained (no closures
- *  over module scope) since puppeteer stringifies it and re-evaluates it in the browser. */
-function collectSnapshot(selector: string): SnapshotItem[] {
-  // Refs from a prior snapshot are stale as soon as the DOM changes — drop them so this
-  // snapshot is the only source of truth.
+ *  over module scope) since puppeteer stringifies it and re-evaluates it in the browser.
+ *  Shared by page_snapshot (no filter) and page_find (text/role/selector filter). */
+export function collectSnapshot(opts: CollectOpts): SnapshotItem[] {
+  // Refs from a prior snapshot/find are stale as soon as the DOM changes — drop them so this
+  // pass is the only source of truth.
   document.querySelectorAll("[data-bfa-ref]").forEach((el) => el.removeAttribute("data-bfa-ref"));
 
-  const nodes = Array.from(document.querySelectorAll(selector));
-  const out: SnapshotItem[] = [];
-  let n = 0;
+  const q = opts.text ? opts.text.toLowerCase() : null;
+  const wantRole = opts.role ? opts.role.toLowerCase() : null;
 
-  for (const el of nodes) {
-    if (el.getClientRects().length === 0) continue; // display:none or detached
-
-    // getClientRects() alone still passes visibility:hidden/opacity:0 elements (they have a
-    // layout box, just nothing painted) — puppeteer's click() derives a point from that box
-    // regardless, so an untagged one would let the model click something it can't see (or
-    // whatever is actually painted underneath it). Skip those too.
-    const cs = getComputedStyle(el);
-    if (cs.visibility === "hidden" || cs.display === "none" || Number(cs.opacity) === 0) continue;
-
-    n++;
-    const ref = "e" + n;
-    el.setAttribute("data-bfa-ref", ref);
-
+  // ARIA role, explicit or implicit — mirrors what assistive tech (and puppeteer's ::-p-aria) use,
+  // so a role:"button"/"link"/"textbox" query matches native elements without a role attribute.
+  const roleOf = (el: Element): string => {
+    const explicit = (el.getAttribute("role") || "").toLowerCase();
+    if (explicit) return explicit;
     const tag = el.tagName.toLowerCase();
-    const role = el.getAttribute("role");
+    if (tag === "input") {
+      const t = ((el as HTMLInputElement).type || "text").toLowerCase();
+      if (t === "button" || t === "submit" || t === "reset" || t === "image") return "button";
+      if (t === "checkbox") return "checkbox";
+      if (t === "radio") return "radio";
+      return "textbox";
+    }
+    if (tag === "a") return el.hasAttribute("href") ? "link" : "";
+    if (tag === "button") return "button";
+    if (tag === "select") return "combobox";
+    if (tag === "textarea") return "textbox";
+    return "";
+  };
 
+  const nameOf = (el: Element): string => {
     let name = "";
     const ariaLabel = el.getAttribute("aria-label");
     if (ariaLabel && ariaLabel.trim()) name = ariaLabel.trim();
@@ -82,8 +95,44 @@ function collectSnapshot(selector: string): SnapshotItem[] {
     }
     // Collapse embedded newlines/runs of whitespace (e.g. a <select>'s innerText fallback
     // concatenates its <option> texts) so every entry stays a single compact line.
-    name = name.replace(/\s+/g, " ").trim().slice(0, 80);
+    return name.replace(/\s+/g, " ").trim().slice(0, 80);
+  };
 
+  const matched: { el: Element; name: string }[] = [];
+  for (const el of Array.from(document.querySelectorAll(opts.selector))) {
+    if (el.getClientRects().length === 0) continue; // display:none or detached
+
+    // getClientRects() alone still passes visibility:hidden/opacity:0 elements (they have a
+    // layout box, just nothing painted) — puppeteer's click() derives a point from that box
+    // regardless, so an untagged one would let the model click something it can't see (or
+    // whatever is actually painted underneath it). Skip those too.
+    const cs = getComputedStyle(el);
+    if (cs.visibility === "hidden" || cs.display === "none" || Number(cs.opacity) === 0) continue;
+
+    if (wantRole && roleOf(el) !== wantRole) continue;
+    const name = nameOf(el);
+    if (q) {
+      const hay = `${(el as HTMLElement).innerText || el.textContent || ""} ${name}`.toLowerCase();
+      if (!hay.includes(q)) continue;
+    }
+    matched.push({ el, name });
+  }
+
+  // "deepest": for a broad text search, drop any match that contains another match, so the caller
+  // gets the innermost element carrying the text (like Puppeteer's ::-p-text), not its wrappers.
+  const finalList = opts.deepest
+    ? matched.filter((m) => !matched.some((o) => o.el !== m.el && m.el.contains(o.el)))
+    : matched;
+
+  const out: SnapshotItem[] = [];
+  let n = 0;
+  for (const { el, name } of finalList) {
+    n++;
+    const ref = "e" + n;
+    el.setAttribute("data-bfa-ref", ref);
+
+    const tag = el.tagName.toLowerCase();
+    const role = el.getAttribute("role");
     const item: SnapshotItem = { ref, tag, name };
     if (role) item.role = role;
     if (tag === "input") {
@@ -98,14 +147,13 @@ function collectSnapshot(selector: string): SnapshotItem[] {
       const href = el.getAttribute("href");
       if (href) item.href = href;
     }
-
     out.push(item);
   }
 
   return out;
 }
 
-function formatLine(it: SnapshotItem): string {
+export function formatLine(it: SnapshotItem): string {
   const typePart = it.type ? `(${it.type})` : "";
   let line = `[${it.ref}] ${it.tag}${typePart} "${it.name}"`;
   if (it.value) line += ` ="${it.value}"`;
@@ -118,7 +166,7 @@ export function registerSnapshotTools(server: McpServer, mgr: SessionManager): v
     "page_snapshot",
     {
       description:
-        "Snapshot the page's interactive elements (links, buttons, inputs, selects, textareas, ...) and assign each a stable ref (e1, e2, ...) via a data-bfa-ref attribute, usable by page_click/page_type/etc instead of a CSS selector. Re-run after any action that changes the DOM — refs from a prior snapshot are invalidated.",
+        "Snapshot the page's interactive elements (links, buttons, inputs, selects, textareas, ...) and assign each a stable ref (e1, e2, ...) via a data-bfa-ref attribute, usable by page_click/page_type/etc instead of a CSS selector. Re-run after any action that changes the DOM — refs from a prior snapshot are invalidated. To find a specific element instead of listing all, use page_find.",
       inputSchema: {
         sessionId: z.string().optional(),
         limit: z.number().int().positive().optional().describe("max elements to list, in document order (default 200)"),
@@ -127,7 +175,12 @@ export function registerSnapshotTools(server: McpServer, mgr: SessionManager): v
     async ({ sessionId, limit }) =>
       guard(async () => {
         const page = mgr.pageFor(sessionId);
-        const items = await page.evaluate(collectSnapshot, INTERACTIVE_SELECTOR);
+        const items = await page.evaluate(collectSnapshot, {
+          selector: INTERACTIVE_SELECTOR,
+          text: null,
+          role: null,
+          deepest: false,
+        });
 
         const cap = limit ?? DEFAULT_LIMIT;
         const shown = items.slice(0, cap);

@@ -4,7 +4,7 @@
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)
 ![MCP](https://img.shields.io/badge/MCP-server-8A2BE2.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6.svg)
-![Tools](https://img.shields.io/badge/tools-44-0a8fa6.svg)
+![Tools](https://img.shields.io/badge/tools-46-0a8fa6.svg)
 
 **English** · [ภาษาไทย](README.th.md)
 
@@ -118,7 +118,7 @@ the active session.
 
 ---
 
-## Tool reference (44)
+## Tool reference (46)
 
 ### Sessions & lifecycle
 | tool | purpose |
@@ -138,6 +138,8 @@ the active session.
 | `page_state` | url, title, readyState, viewport |
 | `page_set_viewport` | resize a live session's viewport |
 | `page_snapshot` | compact, ref-annotated DOM (source of element **refs**) |
+| `page_find` | find element(s) by text / ARIA role / CSS → refs (targeted vs snapshot) |
+| `page_read` | read/search the page's **text content** (optionally by selector + query) |
 | `page_observe` | delta since last observe — new console/network/URL/DOM |
 | `page_screenshot` | PNG of viewport, full page, or one element |
 | `page_eval` | evaluate JS in the page, return the value |

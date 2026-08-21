@@ -20,6 +20,8 @@ import { registerMouseTools } from "./tools/mouse";
 import { registerPersistTools } from "./tools/persist";
 import { registerUploadTools } from "./tools/upload";
 import { registerEmulateTools } from "./tools/emulate";
+import { registerFindTools } from "./tools/find";
+import { registerReadTools } from "./tools/read";
 
 const BFA_INSTRUCTIONS = [
   "browser-for-ai drives a real Chrome over CDP for deep inspection and API-flow reverse-engineering.",
@@ -57,6 +59,8 @@ export function createServer(): { server: McpServer; mgr: SessionManager } {
   registerPersistTools(server, mgr);
   registerUploadTools(server, mgr);
   registerEmulateTools(server, mgr);
+  registerFindTools(server, mgr);
+  registerReadTools(server, mgr);
   return { server, mgr };
 }
 
