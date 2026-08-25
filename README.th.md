@@ -55,7 +55,19 @@ bfa เป็นเครื่องมือ **inspection & reverse-engineerin
 - **Node.js ≥ 20**
 - ติดตั้ง **Google Chrome** (หรือกำหนด `BFA_CHROME_PATH` ชี้ไป Chrome ของคุณ)
 
-## ติดตั้ง & build
+## ติดตั้ง
+
+อยู่บน npm แล้วในชื่อ **[`browser-for-ai`](https://www.npmjs.com/package/browser-for-ai)** — ไม่ต้อง clone หรือ build
+
+```bash
+# ไม่ต้องติดตั้ง (แนะนำ) — ดึงเวอร์ชันล่าสุดมารันเลย
+npx -y browser-for-ai
+
+# …หรือติดตั้งแบบ global ได้คำสั่ง `browser-for-ai`
+npm install -g browser-for-ai
+```
+
+<details><summary>หรือ build จาก source เอง</summary>
 
 ```bash
 git clone https://github.com/icueth/browser-for-ai.git
@@ -63,18 +75,34 @@ cd browser-for-ai
 npm install
 npm run build      # → dist/server.js
 ```
+</details>
 
-## ลงทะเบียนกับ Claude Code
+## ลงทะเบียนกับ MCP client
+
+**Claude Code** — ผ่าน package บน npm (ไม่ต้องใส่ path):
+
+```bash
+claude mcp add browser-for-ai --scope user -- npx -y browser-for-ai
+```
+
+ตรวจด้วย `claude mcp get browser-for-ai` (ควรขึ้น **✔ Connected**) — tools โหลดเข้า session **ใหม่** ให้เปิด Claude Code session ใหม่หลังลงทะเบียน
+
+**AgentSpace** ใส่ `browser-for-ai` เป็น MCP server **default** ให้อยู่แล้ว (`npx -y browser-for-ai`) — เห็นได้ที่ **Settings → MCP / Integrations** เลย
+
+**MCP client อื่นๆ** (config stdio ดิบๆ):
+
+```jsonc
+{ "command": "npx", "args": ["-y", "browser-for-ai"] }
+```
+
+<details><summary>ลงทะเบียนจาก build ในเครื่องแทน npm</summary>
 
 ```bash
 claude mcp add browser-for-ai --scope user -- node /absolute/path/to/browser-for-ai/dist/server.js
 ```
 
-> ถ้า `node` มาจาก version manager (nvm, asdf, …) ให้ใส่ **absolute path** ของ
-> binary node — เพราะ MCP server ถูกเรียกจาก shell ที่ไม่ resolve alias
-
-ตรวจด้วย `claude mcp get browser-for-ai` (ควรขึ้น **✔ Connected**) tools จะโหลดเข้า
-session **ใหม่** ให้เปิด Claude Code session ใหม่หลังลงทะเบียน
+> ถ้า `node` มาจาก version manager (nvm, asdf, …) ให้ใส่ **absolute path** ของ binary node — เพราะ MCP server ถูกเรียกจาก shell ที่ไม่ resolve alias
+</details>
 
 ---
 

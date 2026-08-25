@@ -58,7 +58,19 @@ cloud scraping farm — that focus is why the first three rows are rare elsewher
 - **Node.js ≥ 20**
 - **Google Chrome** installed (or set `BFA_CHROME_PATH` to your Chrome binary)
 
-## Install & build
+## Install
+
+Published on npm as **[`browser-for-ai`](https://www.npmjs.com/package/browser-for-ai)** — no clone or build required.
+
+```bash
+# zero-install (recommended) — pulls the latest and runs on demand
+npx -y browser-for-ai
+
+# …or install globally, exposing a `browser-for-ai` command
+npm install -g browser-for-ai
+```
+
+<details><summary>Build from source instead</summary>
 
 ```bash
 git clone https://github.com/icueth/browser-for-ai.git
@@ -66,19 +78,34 @@ cd browser-for-ai
 npm install
 npm run build      # → dist/server.js
 ```
+</details>
 
-## Register with Claude Code
+## Register with an MCP client
+
+**Claude Code** — via the published package (no path needed):
+
+```bash
+claude mcp add browser-for-ai --scope user -- npx -y browser-for-ai
+```
+
+Verify with `claude mcp get browser-for-ai` (should say **✔ Connected**). Tools load into a **new** session, so start a fresh Claude Code session afterward.
+
+**AgentSpace** ships `browser-for-ai` as a **default** MCP server (`npx -y browser-for-ai`) — it appears under **Settings → MCP / Integrations** out of the box.
+
+**Any MCP client** (raw stdio config):
+
+```jsonc
+{ "command": "npx", "args": ["-y", "browser-for-ai"] }
+```
+
+<details><summary>Register a local build instead of the npm package</summary>
 
 ```bash
 claude mcp add browser-for-ai --scope user -- node /absolute/path/to/browser-for-ai/dist/server.js
 ```
 
-> If `node` comes from a version manager (nvm, asdf, …), pass the **absolute**
-> path to the node binary — the MCP server is spawned by a non-interactive shell
-> that won't resolve aliases.
-
-Verify with `claude mcp get browser-for-ai` (should say **✔ Connected**). Tools
-load into a **new** session, so start a fresh Claude Code session afterward.
+> If `node` comes from a version manager (nvm, asdf, …), pass the **absolute** path to the node binary — the MCP server is spawned by a non-interactive shell that won't resolve aliases.
+</details>
 
 ---
 
