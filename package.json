@@ -29,7 +29,8 @@
     "node": ">=20"
   },
   "bin": {
-    "browser-for-ai": "dist/server.js"
+    "browser-for-ai": "dist/server.js",
+    "bfa-chrome": "bin/bfa-chrome"
   },
   "files": [
     "dist",
