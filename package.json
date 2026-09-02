@@ -30,7 +30,7 @@
   },
   "bin": {
     "browser-for-ai": "dist/server.js",
-    "bfa-chrome": "./bin/bfa-chrome"
+    "bfa-chrome": "bfa-chrome"
   },
   "files": [
     "dist",
