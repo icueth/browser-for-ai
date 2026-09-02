@@ -98,8 +98,13 @@ export function collectSnapshot(opts: CollectOpts): SnapshotItem[] {
     return name.replace(/\s+/g, " ").trim().slice(0, 80);
   };
 
+  // A broad ("*") search over a big DOM must stay cheap: textContent needs no layout (innerText
+  // forces one per element), the text test runs BEFORE the name cascade, and matches are capped.
+  const broad = opts.selector === "*";
+  const MAX_MATCHES = 3000;
   const matched: { el: Element; name: string }[] = [];
   for (const el of Array.from(document.querySelectorAll(opts.selector))) {
+    if (matched.length >= MAX_MATCHES) break;
     if (el.getClientRects().length === 0) continue; // display:none or detached
 
     // getClientRects() alone still passes visibility:hidden/opacity:0 elements (they have a
@@ -110,19 +115,30 @@ export function collectSnapshot(opts: CollectOpts): SnapshotItem[] {
     if (cs.visibility === "hidden" || cs.display === "none" || Number(cs.opacity) === 0) continue;
 
     if (wantRole && roleOf(el) !== wantRole) continue;
-    const name = nameOf(el);
     if (q) {
-      const hay = `${(el as HTMLElement).innerText || el.textContent || ""} ${name}`.toLowerCase();
+      const own = broad ? el.textContent || "" : (el as HTMLElement).innerText || el.textContent || "";
+      const hay = `${own} ${el.getAttribute("aria-label") || ""} ${el.getAttribute("placeholder") || ""} ${el.getAttribute("title") || ""}`.toLowerCase();
       if (!hay.includes(q)) continue;
     }
-    matched.push({ el, name });
+    matched.push({ el, name: nameOf(el) });
   }
 
   // "deepest": for a broad text search, drop any match that contains another match, so the caller
   // gets the innermost element carrying the text (like Puppeteer's ::-p-text), not its wrappers.
-  const finalList = opts.deepest
-    ? matched.filter((m) => !matched.some((o) => o.el !== m.el && m.el.contains(o.el)))
-    : matched;
+  // Linear: mark every ancestor of every match once, then keep matches that are nobody's ancestor
+  // (the previous pairwise contains() was O(m²) and pinned the renderer on large pages).
+  let finalList = matched;
+  if (opts.deepest) {
+    const ancestors = new Set<Element>();
+    for (const m of matched) {
+      let p = m.el.parentElement;
+      while (p && !ancestors.has(p)) {
+        ancestors.add(p);
+        p = p.parentElement;
+      }
+    }
+    finalList = matched.filter((m) => !ancestors.has(m.el));
+  }
 
   const out: SnapshotItem[] = [];
   let n = 0;

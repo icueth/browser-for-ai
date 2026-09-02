@@ -34,7 +34,13 @@ export interface CssCapture {
   /** page scroll at capture time (CSS px) — turns a document-relative point into a viewport coord */
   scrollX: number;
   scrollY: number;
+  /** fullPage only: the CSS height the capture was clamped to (Chromium / pixel-budget limit) */
+  truncatedAt?: number;
 }
+
+/** Chromium refuses/blanks captures beyond ~16384 px, and a giant bitmap can take the whole browser down. */
+const FULLPAGE_MAX_PX = 16384;
+const FULLPAGE_PIXEL_BUDGET = 40_000_000;
 
 /** What a capture's pixels are relative to — decides how the mapping note is phrased. */
 export type CaptureKind = "viewport" | "element" | "fullPage";
@@ -60,19 +66,33 @@ export async function captureCss(
   page: Page,
   opts: { region?: CssRect; fullPage?: boolean; fullRes?: boolean } = {},
 ): Promise<CssCapture> {
+  // A background tab of an attached (headful) Chrome doesn't paint — bring it forward first.
+  await page.bringToFront().catch(() => {});
   const m = await page.evaluate(() => ({
     dpr: window.devicePixelRatio || 1,
     w: window.innerWidth,
     h: window.innerHeight,
     sx: window.scrollX,
     sy: window.scrollY,
+    docW: Math.max(document.documentElement.scrollWidth, document.body ? document.body.scrollWidth : 0),
     docH: Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0),
   }));
-  const region: CssRect = opts.region
-    ? { x: opts.region.x + m.sx, y: opts.region.y + m.sy, width: opts.region.width, height: opts.region.height }
-    : opts.fullPage
-      ? { x: 0, y: 0, width: m.w, height: m.docH }
-      : { x: m.sx, y: m.sy, width: m.w, height: m.h };
+  let truncatedAt: number | undefined;
+  let region: CssRect;
+  if (opts.region) {
+    region = { x: opts.region.x + m.sx, y: opts.region.y + m.sy, width: opts.region.width, height: opts.region.height };
+  } else if (opts.fullPage) {
+    // Bound the raster: Chromium caps captures around 16384 px, and a multi-GB bitmap has crashed
+    // the whole browser (in attach mode: the user's). Also honour a pixel budget.
+    const width = Math.max(m.w, m.docW);
+    const scale = opts.fullRes ? m.dpr : 1;
+    const budgetH = Math.floor(FULLPAGE_PIXEL_BUDGET / (width * scale * scale));
+    const height = Math.min(m.docH, FULLPAGE_MAX_PX, Math.max(m.h, budgetH));
+    if (height < m.docH) truncatedAt = height;
+    region = { x: 0, y: 0, width, height };
+  } else {
+    region = { x: m.sx, y: m.sy, width: m.w, height: m.h };
+  }
   if (region.width < 1 || region.height < 1) throw new Error("nothing visible to capture (empty region)");
 
   // captureBeyondViewport MUST stay true: with false, puppeteer intersects the clip with the viewport and
@@ -101,6 +121,7 @@ export async function captureCss(
     scale: size.width / region.width,
     scrollX: m.sx,
     scrollY: m.sy,
+    truncatedAt,
   };
 }
 
@@ -116,8 +137,9 @@ export function mappingNote(cap: CssCapture, kind: CaptureKind = "viewport"): st
   if (kind === "fullPage") {
     return (
       `${dims} — DOCUMENT-relative, NOT a click coordinate${unscale}. page_click_at takes VIEWPORT coords: ` +
-      `x = image_x${oneToOne ? "" : "/" + s}, y = image_y${oneToOne ? "" : "/" + s} − scrollY (scrollY is ${cap.scrollY} now); ` +
-      `if that point is outside the current viewport, page_scroll to it first — or use page_look / page_find to click by ref instead`
+      `x = image_x${oneToOne ? "" : "/" + s} − scrollX (${cap.scrollX} now), y = image_y${oneToOne ? "" : "/" + s} − scrollY (${cap.scrollY} now); ` +
+      `if that point is outside the current viewport, page_scroll to it first — or use page_look / page_find to click by ref instead` +
+      (cap.truncatedAt ? `; capture truncated at ${cap.truncatedAt}px of document height (Chromium/pixel-budget limit) — page_scroll and re-capture for the rest` : "")
     );
   }
   if (kind === "element") {
@@ -156,22 +178,30 @@ export function registerScreenshotTools(server: McpServer, mgr: SessionManager):
     async ({ ref, selector, sessionId, fullPage, fullRes }): Promise<CallToolResult> => {
       try {
         const page = mgr.pageFor(sessionId);
-        if (ref || selector) {
-          const el = await resolveTarget(page, { ref, selector }, "page_screenshot");
-          await el.evaluate((e) => e.scrollIntoView({ block: "center", inline: "center", behavior: "instant" as ScrollBehavior }));
-          const box = await el.boundingBox(); // viewport-relative — exactly what page_click_at wants
-          if (!box || box.width < 1 || box.height < 1) return fail("element has no visible box to capture");
-          const cap = await captureCss(page, { region: box, fullRes: !!fullRes });
-          const ox = Math.round(box.x);
-          const oy = Math.round(box.y);
-          const note =
-            `element ${mappingNote(cap, "element")}; element origin at page (${ox}, ${oy}) → ` +
-            `page_click_at x = ${ox} + ix/${fmt(cap.scale)}, y = ${oy} + iy/${fmt(cap.scale)}`;
+        return await mgr.withPageLock(sessionId, async (): Promise<CallToolResult> => {
+          if (ref || selector) {
+            const el = await resolveTarget(page, { ref, selector }, "page_screenshot");
+            // Only scroll when the element isn't fully in view: an unconditional scroll would
+            // silently move the page and stale every coordinate read off an earlier image.
+            const inView = await el.isIntersectingViewport({ threshold: 1 }).catch(() => false);
+            if (!inView) {
+              await el.evaluate((e) => e.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" as ScrollBehavior }));
+            }
+            const box = await el.boundingBox(); // viewport-relative — exactly what page_click_at wants
+            if (!box || box.width < 1 || box.height < 1) return fail("element has no visible box to capture");
+            const cap = await captureCss(page, { region: box, fullRes: !!fullRes });
+            const ox = Math.round(box.x);
+            const oy = Math.round(box.y);
+            const note =
+              `element ${mappingNote(cap, "element")}; element origin at page (${ox}, ${oy}) → ` +
+              `page_click_at x = ${ox} + ix/${fmt(cap.scale)}, y = ${oy} + iy/${fmt(cap.scale)}` +
+              (inView ? "" : " (page was scrolled to bring it into view — coordinates from earlier images are stale)");
+            return { content: [{ type: "image", data: cap.data, mimeType: "image/png" }, { type: "text", text: note }] };
+          }
+          const cap = await captureCss(page, { fullPage: !!fullPage, fullRes: !!fullRes });
+          const note = mappingNote(cap, fullPage ? "fullPage" : "viewport");
           return { content: [{ type: "image", data: cap.data, mimeType: "image/png" }, { type: "text", text: note }] };
-        }
-        const cap = await captureCss(page, { fullPage: !!fullPage, fullRes: !!fullRes });
-        const note = mappingNote(cap, fullPage ? "fullPage" : "viewport");
-        return { content: [{ type: "image", data: cap.data, mimeType: "image/png" }, { type: "text", text: note }] };
+        });
       } catch (err) {
         return fail(`error: ${err instanceof Error ? err.message : String(err)}`);
       }

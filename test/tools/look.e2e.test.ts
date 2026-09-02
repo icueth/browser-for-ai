@@ -114,6 +114,32 @@ describe.skipIf(!chromeAvailable)("vision: page_screenshot 1:1 + page_look (Set-
     expect(legend).toContain("Login");
   });
 
+  it("page_look skips elements covered by a modal backdrop (a click there would hit the backdrop)", async () => {
+    await client.callTool({
+      name: "page_eval",
+      arguments: {
+        expression:
+          "(()=>{const d=document.createElement('div');d.id='bfa_backdrop';d.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99999';document.body.appendChild(d);return 'ok';})()",
+      },
+    });
+    try {
+      const res = await client.callTool({ name: "page_look", arguments: {} });
+      expect(res.isError).toBeFalsy();
+      const legend = textOf(res);
+      expect(legend).not.toContain("Login"); // covered → no badge, no legend line
+      expect(legend).toMatch(/covered\/clipped skipped/);
+    } finally {
+      await client.callTool({ name: "page_eval", arguments: { expression: "document.getElementById('bfa_backdrop').remove(); 'ok'" } });
+    }
+  });
+
+  it("page_look still returns an image when nothing matches (canvas-only pages)", async () => {
+    const res = await client.callTool({ name: "page_look", arguments: { selector: "#no-such-element-zzz" } });
+    expect(res.isError).toBeFalsy();
+    expect(imageOf(res)).toBeTruthy();
+    expect(textOf(res)).toMatch(/^0 marked/);
+  });
+
   it("page_look / page_screenshot capture the CURRENT viewport when scrolled (clip is document-relative)", async () => {
     // make the page tall, add a button far below the fold, scroll to it
     await client.callTool({
