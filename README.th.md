@@ -4,7 +4,7 @@
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)
 ![MCP](https://img.shields.io/badge/MCP-server-8A2BE2.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6.svg)
-![Tools](https://img.shields.io/badge/tools-47-0a8fa6.svg)
+![Tools](https://img.shields.io/badge/tools-50-0a8fa6.svg)
 
 [English](README.md) · **ภาษาไทย**
 
@@ -34,6 +34,10 @@
   offline / bandwidth กำหนดเอง พร้อมหน่วง CPU
 - **🗂️ session จริง** — หลาย session พร้อมกัน, incognito, **attach เข้า Chrome ที่
   ล็อกอินอยู่**, save/restore cookie + storage, และล้าง cache สมบูรณ์
+- **⚡ เร็ว และไม่มีวันค้าง** — `page_batch` ทำทั้งลำดับในรอบเดียวและปิดท้ายด้วย look ได้;
+  ทุก action รอแค่จน "นิ่ง" ไม่ใช่ sleep ตายตัว; `page_wait_for` / `net_wait` คืนทันทีที่เงื่อนไขจริง
+  ทุกคำสั่งมีเพดานเวลา: สคริปต์วนลูปถูกหยุด (`page_eval` มี budget, `browser_recover`),
+  `browser_close` force-kill Chrome ที่เราเปิดถ้าไม่ยอมปิด, recorder เป็น ring buffer สำหรับ session ยาวๆ
 
 ### เทียบกับตัวอื่น
 
@@ -45,6 +49,7 @@
 | พิกัด **+ สัมผัส** สำหรับ canvas / WebGL | ✅ | บางตัว (vision mode) |
 | attach เข้า Chrome ที่ **ล็อกอินอยู่** | ✅ | ✅ (มีทั่วไป) |
 | throttle network / CPU | ✅ | บางตัว |
+| batch หลาย step + เห็นผลในคำสั่งเดียว; ทุกคำสั่งมีเพดานเวลา + กู้สคริปต์ค้าง | ✅ | หายาก |
 | browser บน cloud · stealth · proxy · CAPTCHA | ✗ *(เป็น local โดยตั้งใจ)* | บาง cloud tool |
 
 bfa เป็นเครื่องมือ **inspection & reverse-engineering ฝั่ง dev ที่รันในเครื่อง** ไม่ใช่
@@ -143,7 +148,7 @@ browser_close { "all": true }
 
 ---
 
-## รายการ tools ทั้งหมด (47)
+## รายการ tools ทั้งหมด (50)
 
 ### Session & lifecycle
 | tool | หน้าที่ |
@@ -155,6 +160,7 @@ browser_close { "all": true }
 | `browser_close` | ปิด session (หรือ `all`) |
 | `browser_clear_cache` | ล้าง cache + cookie + storage |
 | `browser_hard_reload` | reload ข้าม cache |
+| `browser_recover` | กู้หน้าที่ JS ค้าง (หยุดสคริปต์ → ปิด scripts → ยังอ่าน/ปิดได้) |
 
 ### Navigation, state & อ่านหน้า
 | tool | หน้าที่ |
@@ -166,6 +172,7 @@ browser_close { "all": true }
 | `page_find` | หา element ด้วย text / ARIA role / CSS → คืน ref (เจาะจงกว่า snapshot) |
 | `page_read` | อ่าน/ค้น **ข้อความเนื้อหา** ในหน้า (เลือก selector + query ได้) |
 | `page_look` | **เห็นแล้วคลิก**: screenshot 1:1 ที่มีเลขกำกับบนทุก element ที่กดได้ + legend → `page_click {ref}` |
+| `page_wait_for` | รอจน selector / ข้อความ / URL / network-idle เป็นจริง (แทน sleep) |
 | `page_observe` | delta ตั้งแต่ครั้งก่อน (console/network/URL/DOM) |
 | `page_screenshot` | PNG ของ viewport / เต็มหน้า / element เดียว |
 | `page_eval` | รัน JS ในหน้า แล้วคืนค่า |
@@ -184,6 +191,7 @@ browser_close { "all": true }
 | `page_click_at` | คลิกที่พิกัด `{x, y}` (canvas/WebGL) |
 | `page_tap_at` | แตะ (touch) ที่พิกัด `{x, y}` |
 | `page_drag` | ลากระหว่างจุด/element |
+| `page_batch` | **หลาย step ในคำสั่งเดียว** (fill → click → wait_for … ระบุเป้าด้วย selector/text/ref) delta รวม + look ปิดท้ายได้ |
 
 ### Network (อ่านลึก)
 | tool | หน้าที่ |
@@ -341,6 +349,19 @@ page_screenshot                              // ภาพ 1:1 — จุด (x,y
 page_click_at { "x": 640, "y": 412 }
 ```
 
+### H. ทั้ง flow ในรอบเดียว (`page_batch`)
+
+```jsonc
+page_batch { "steps": [
+  { "action": "fill",     "selector": "#user", "value": "alice" },
+  { "action": "fill",     "selector": "#pass", "value": "s3cret" },
+  { "action": "click",    "text": "Login" },                 // ระบุเป้าด้วยข้อความที่เห็น
+  { "action": "wait_for", "url": "/dashboard", "timeoutMs": 8000 }
+], "look": true }
+// → delta รวมทั้ง network/console/url + screenshot ติดเลขของหน้า dashboard
+//   เลือก page_click {ref} ถัดไปได้จากคำตอบเดียวกัน หยุดที่ step แรกที่ล้ม
+```
+
 ---
 
 ## เกม Canvas / WebGL
@@ -428,8 +449,15 @@ cp -R "$HOME/Library/Application Support/Google/Chrome" "$HOME/.bfa/real-copy"
   เป็น browser ธรรมดา (`navigator.webdriver === false`, profile/fingerprint จริง) — bfa **ไม่มี**
   fingerprint spoofing / anti-bot evasion โดยตั้งใจ ถ้าเว็บบล็อก automation และคุณมีสิทธิ์ใช้งาน
   ที่นั่น ให้ใช้ `attach` (browser จริง) ไม่ใช่ trick ปลอม fingerprint
-- native dialog (`alert` / `confirm` / `beforeunload`) จะถูก **auto-dismiss** เพื่อไม่ให้
-  session ค้าง
+- **ไม่ค้าง ไม่ต้อง force-quit** — `alert`/`confirm` ถูก dismiss แต่ `beforeunload` ถูก **accept**
+  (= ออกจากหน้า) จึงไม่เคย veto การกด Cmd+W / Cmd+Q / reload ของคุณเอง; CDP call หมดเวลาที่ 30 วิ;
+  `page_eval` มี budget และหยุด busy loop; `browser_recover` กู้หน้าที่สคริปต์ของเว็บวนเอง;
+  `browser_close` / shutdown มีเพดานและ force-kill Chrome ที่เราเปิดถ้าไม่ยอมปิด (attach = แค่ disconnect)
+  `net_throttle` CPU สูงสุด 20x และ throttle ที่ค้างอยู่โชว์ใน `page_state`; Fetch intercept ปิดเมื่อไม่มี rule
+- **แรมมีเพดาน** — recorder เก็บ 3000 request / 200 socket × 500 frame / 2000 บรรทัด console ล่าสุด
+  และให้ Chrome เก็บ response body ไม่เกิน 64 MB — attach ทั้งวันไม่บวมจนเบราว์เซอร์อืด
+- `browser_clear_cache` ใน attach mode ล้างเฉพาะ origin ปัจจุบัน (profile จริงของคุณ) ใส่ `scope:"all"`
+  ถ้าจะล้าง cache+cookie ทั้ง profile
 - `flow_replay` รีเพลย์เฉพาะ `http`/`https`, มี timeout ต่อ request, จำกัดรวม
   (60 วิ / 200 step), และไม่แตะ browser session สด
 - header ถูกเก็บจาก **สายจริง** (CDP ExtraInfo) จึงได้ `Cookie` และ header ที่ network

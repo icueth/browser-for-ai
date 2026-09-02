@@ -4,7 +4,7 @@
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)
 ![MCP](https://img.shields.io/badge/MCP-server-8A2BE2.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6.svg)
-![Tools](https://img.shields.io/badge/tools-47-0a8fa6.svg)
+![Tools](https://img.shields.io/badge/tools-50-0a8fa6.svg)
 
 **English** · [ภาษาไทย](README.th.md)
 
@@ -37,6 +37,11 @@ The things a screenshot-only browser tool can't do:
   Slow 3G / offline / custom bandwidth with CPU slowdown.
 - **🗂️ Real sessions.** Many concurrent sessions, incognito, **attach to your
   logged-in Chrome**, save/restore cookies + storage, and complete cache clearing.
+- **⚡ Fast, and it never hangs.** `page_batch` runs a whole sequence in one round-trip and
+  can end with a look; actions settle on *quiet* instead of fixed sleeps; `page_wait_for` /
+  `net_wait` return the moment a condition holds. Every call is time-bounded: a runaway
+  script is terminated (`page_eval` budget, `browser_recover`), `browser_close` force-kills
+  an owned Chrome that won't exit, and the recorder is ring-bounded for day-long sessions.
 
 ### How it compares
 
@@ -48,6 +53,7 @@ The things a screenshot-only browser tool can't do:
 | Coordinate **+ touch** interaction for canvas / WebGL | ✅ | some (vision mode) |
 | Attach to your **logged-in** Chrome | ✅ | ✅ (common) |
 | Network / CPU throttling presets | ✅ | some |
+| Multi-step batch + see-the-result in ONE call; bounded calls, runaway-script recovery | ✅ | rare |
 | Cloud-scaled browsers · stealth · proxies · CAPTCHA | ✗ *(local by design)* | some cloud tools |
 
 bfa is a **local, developer-facing inspection & reverse-engineering** tool, not a
@@ -147,7 +153,7 @@ the active session.
 
 ---
 
-## Tool reference (47)
+## Tool reference (50)
 
 ### Sessions & lifecycle
 | tool | purpose |
@@ -159,6 +165,7 @@ the active session.
 | `browser_close` | close one session, or `all` |
 | `browser_clear_cache` | clear cache + cookies + storage |
 | `browser_hard_reload` | bypass-cache reload |
+| `browser_recover` | unfreeze a page whose JS is pinned (terminate script → scripts off → still readable/closable) |
 
 ### Navigation, state & read
 | tool | purpose |
@@ -170,6 +177,7 @@ the active session.
 | `page_find` | find element(s) by text / ARIA role / CSS → refs (targeted vs snapshot) |
 | `page_read` | read/search the page's **text content** (optionally by selector + query) |
 | `page_look` | **see-then-click**: 1:1 screenshot with numbered badges on every clickable element + legend → `page_click {ref}` |
+| `page_wait_for` | wait until a selector / text / URL / network-idle condition holds (instead of sleeping) |
 | `page_observe` | delta since last observe — new console/network/URL/DOM |
 | `page_screenshot` | PNG of viewport, full page, or one element |
 | `page_eval` | evaluate JS in the page, return the value |
@@ -188,6 +196,7 @@ the active session.
 | `page_click_at` | click at raw `{x, y}` (canvas/WebGL) |
 | `page_tap_at` | touch-tap at `{x, y}` |
 | `page_drag` | drag between two points/elements |
+| `page_batch` | **many steps in one call** (fill → click → wait_for …, target by selector/text/ref), one combined delta, optional final look |
 
 ### Network (deep read)
 | tool | purpose |
@@ -347,6 +356,19 @@ page_screenshot                              // plain 1:1 image; any point (x,y)
 page_click_at { "x": 640, "y": 412 }
 ```
 
+### H. A whole flow in one round-trip (`page_batch`)
+
+```jsonc
+page_batch { "steps": [
+  { "action": "fill",     "selector": "#user", "value": "alice" },
+  { "action": "fill",     "selector": "#pass", "value": "s3cret" },
+  { "action": "click",    "text": "Login" },                 // target by visible text
+  { "action": "wait_for", "url": "/dashboard", "timeoutMs": 8000 }
+], "look": true }
+// → one combined network/console/url delta + a badged screenshot of the dashboard,
+//   so the next page_click {ref} is chosen from the same reply. Stops at the first failing step.
+```
+
 ---
 
 ## Canvas / WebGL games
@@ -441,8 +463,18 @@ proxies — bfa stays a local inspection tool.
   profile & fingerprint). bfa ships **no** fingerprint spoofing or anti-bot evasion by
   design — if a site blocks automation and you're authorized to operate there, use
   `attach` (a genuine browser), not a spoofing trick.
-- Native dialogs (`alert` / `confirm` / `beforeunload`) are **auto-dismissed** so
-  the session never hangs on one.
+- **Never hangs, never needs a force-quit.** Native `alert`/`confirm` are dismissed, but
+  `beforeunload` is **accepted** (= leave) so your own Cmd+W / Cmd+Q / reload is never
+  vetoed. CDP calls time out at 30 s; `page_eval` has a budget and terminates a busy loop;
+  `browser_recover` unfreezes a page whose own script spins; `browser_close` / shutdown are
+  bounded and force-kill an owned Chrome that won't exit (attach sessions are only
+  disconnected). `net_throttle` CPU is capped at 20x and any active throttle shows in
+  `page_state`; Fetch interception is switched off when no rules remain.
+- **Bounded memory.** The recorder keeps the newest 3000 requests / 200 sockets × 500 frames /
+  2000 console lines, and asks Chrome to retain at most 64 MB of response bodies — a day-long
+  attach session no longer grows until the browser crawls.
+- `browser_clear_cache` defaults to the current origin in attach mode (your real profile);
+  pass `scope:"all"` to wipe the whole profile's cache + cookies.
 - `flow_replay` only replays `http`/`https`, times out per request, is capped
   overall (60 s / 200 steps), and never touches the live browser session.
 - Headers are captured from the **actual wire** (CDP ExtraInfo), so `Cookie` and
