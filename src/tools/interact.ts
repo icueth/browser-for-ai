@@ -6,6 +6,7 @@ import { ok } from "../format/compact";
 import { guard } from "./guard";
 import { withDelta } from "./delta";
 import { targetFields, resolveTarget, describeTarget } from "./refs";
+import { fillElement } from "./fillx";
 import type { Target } from "./refs";
 
 /** Splits a "Control+Shift+A"-style key combo into (modifiers, key). A bare key like "Enter"
@@ -95,9 +96,7 @@ export function registerInteractTools(server: McpServer, mgr: SessionManager): v
           await withDelta(mgr, sessionId, waitMs, async (_rec, page) => {
             for (const field of fields) {
               const el = await resolveTarget(page, { ref: field.ref, selector: field.selector }, "page_fill");
-              await el.click({ clickCount: 3 });
-              await page.keyboard.press("Backspace");
-              await el.type(field.value);
+              await fillElement(page, el, field.value);
             }
             return { note: `filled ${fields.length} fields` };
           }),

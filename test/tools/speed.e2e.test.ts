@@ -117,4 +117,40 @@ describe.skipIf(!chromeAvailable)("speed pack e2e: smart settle, page_wait_for, 
     expect(out).toContain("stopped after step 1 (1 not run)");
     expect(out).not.toContain("#2 click ✓");
   });
+  it("page_batch text targeting does not renumber refs that other steps rely on", async () => {
+    await client.callTool({ name: "page_goto", arguments: { url: fixture.url } });
+    const snap = textOf(await client.callTool({ name: "page_snapshot", arguments: {} }));
+    const loginRef = snap.split("\n").find((l) => /Login/i.test(l))?.match(/\[(e\d+)\]/)?.[1];
+    expect(loginRef).toBeTruthy();
+    const r = await client.callTool({ name: "page_batch", arguments: { steps: [{ action: "hover", text: "Login" }] } });
+    expect(r.isError).toBeFalsy();
+    expect(textOf(r)).toContain("#1 hover ✓");
+    const still = await client.callTool({
+      name: "page_eval",
+      arguments: { expression: `document.querySelector('[data-bfa-ref="${loginRef}"]')?.textContent ?? 'GONE'` },
+    });
+    expect(textOf(still)).toMatch(/Login/i);
+  });
+
+  it("page_wait_for networkIdle waits for a response still owed to the last action", async () => {
+    // page_eval is an action (withDelta): the 2 s fetch it starts is "since your last action" and still in flight
+    // when page_wait_for begins (eval settles at its 700 ms cap), so idle must not be declared before it answers.
+    const t0 = Date.now();
+    const started = await client.callTool({ name: "page_eval", arguments: { expression: "fetch('/api/slow?ms=2000').catch(() => {}); 'started'" } });
+    expect(started.isError).toBeFalsy();
+    const r = await client.callTool({ name: "page_wait_for", arguments: { networkIdleMs: 200, timeoutMs: 8000 } });
+    expect(r.isError).toBeFalsy();
+    expect(textOf(r)).toContain("network idle");
+    const slow = textOf(await client.callTool({ name: "net_get", arguments: { url: "/api/slow?ms=2000" } }));
+    expect(slow).toMatch(/\b200\b/); // finished by the time idle was declared
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(1500);
+  }, 15_000);
+
+  it("page_wait_for rejects a malformed selector immediately instead of timing out", async () => {
+    const t0 = Date.now();
+    const r = await client.callTool({ name: "page_wait_for", arguments: { selector: "div[", timeoutMs: 4000 } });
+    expect(r.isError).toBeTruthy();
+    expect(textOf(r)).toContain("not a valid CSS selector");
+    expect(Date.now() - t0).toBeLessThan(2000);
+  });
 });

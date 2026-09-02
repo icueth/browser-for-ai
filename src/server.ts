@@ -34,7 +34,7 @@ const BFA_INSTRUCTIONS = [
   '• Most tasks → mode:"fresh" (add incognito:true for a clean slate). A throwaway Chrome, no setup — use for',
   "  reverse-engineering a public flow or any site that does not need your existing login.",
   '• Need real logins / a human-looking browser (navigator.webdriver=false, real profile & fingerprint) →',
-  '  mode:"attach", port:9222, AFTER the user starts Chrome with `bin/bfa-chrome 9222` (Chrome 136+ needs a',
+  '  mode:"attach", port:9222, AFTER the user starts Chrome with `./bfa-chrome 9222` (Chrome 136+ needs a',
   "  non-default profile, which bfa-chrome uses). You cannot attach to an already-open normal Chrome — no debug port.",
   "",
   "SPEED: every model round-trip costs seconds, so (1) use page_batch to run a whole sequence (fill → click →",

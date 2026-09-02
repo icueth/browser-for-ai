@@ -207,7 +207,7 @@ export class SessionManager {
         `cannot attach: no Chrome debug endpoint on port ${port}. A normally-opened Chrome has no ` +
           `debug port, and Chrome 136+ refuses one on the default profile — so first start a SEPARATE ` +
           `Chrome with its own profile, then retry:\n` +
-          `  <repo>/bin/bfa-chrome ${port}     # dedicated profile ~/.bfa/attach-profile; log in once\n` +
+          `  <repo>/bfa-chrome ${port}   (or: npx -p browser-for-ai bfa-chrome ${port})   # dedicated profile ~/.bfa/attach-profile; log in once\n` +
           `  browser_launch { "mode": "attach", "port": ${port} }\n` +
           `To reuse existing logins, point bfa-chrome at a COPY of your Chrome profile dir ` +
           `(a non-default --user-data-dir). [${err instanceof Error ? err.message : String(err)}]`,

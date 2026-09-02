@@ -143,12 +143,13 @@ export async function startFixture(): Promise<Fixture> {
       // Deliberately never respond — the request must stay pending.
       return;
     }
-    if (url === "/api/slow") {
+    if (url.startsWith("/api/slow")) {
+      const slowMs = Number(new URL(url, "http://x").searchParams.get("ms")) || 400;
       // Finishes, but only after a delay — a slow-but-finished request for net_slow.
       const timer = setTimeout(() => {
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ slow: true }));
-      }, 400);
+      }, slowMs);
       res.on("close", () => clearTimeout(timer));
       return;
     }

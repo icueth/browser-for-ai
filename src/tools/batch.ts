@@ -7,9 +7,10 @@ import type { Recorder } from "../recorder/recorder";
 import { fail } from "../format/compact";
 import { withDelta, settle } from "./delta";
 import { resolveTarget } from "./refs";
-import { collectSnapshot, INTERACTIVE_SELECTOR } from "./snapshot";
+import { INTERACTIVE_SELECTOR } from "./snapshot";
 import { captureLook } from "./look";
 import { waitFor } from "./waitfor";
+import { fillElement } from "./fillx";
 
 const ACTIONS = ["click", "type", "fill", "select", "key", "hover", "scroll", "click_at", "goto", "wait", "wait_for"] as const;
 const MAX_STEPS = 40;
@@ -35,13 +36,33 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** In-page: the first VISIBLE interactive element whose text / label / placeholder / title contains
+ *  `needle` (case-insensitive). Runs via page.evaluateHandle and returns the element itself, so — unlike
+ *  collectSnapshot — it never rewrites the page's data-bfa-ref numbering: a text-targeted step must not
+ *  invalidate the refs other steps in the same batch rely on. Visibility + haystack rules mirror
+ *  collectSnapshot (kept in sync by hand: in-page functions cannot share module scope). */
+function firstByText(sel: string, needle: string): Element | null {
+  const q = needle.toLowerCase();
+  for (const el of Array.from(document.querySelectorAll(sel))) {
+    if (el.getClientRects().length === 0) continue;
+    const cs = getComputedStyle(el);
+    if (cs.visibility === "hidden" || cs.display === "none" || Number(cs.opacity) === 0) continue;
+    const own = (el as HTMLElement).innerText || el.textContent || "";
+    const hay = `${own} ${el.getAttribute("aria-label") || ""} ${el.getAttribute("placeholder") || ""} ${el.getAttribute("title") || ""}`.toLowerCase();
+    if (hay.includes(q)) return el;
+  }
+  return null;
+}
+
 async function resolveStepTarget(page: Page, s: Step, tool: string): Promise<ElementHandle<Element>> {
   if (s.text && !s.ref && !s.selector) {
-    // "the element whose text says X" — the same matcher page_find uses, first match wins.
-    const items = await page.evaluate(collectSnapshot, { selector: INTERACTIVE_SELECTOR, text: s.text, role: null, deepest: false });
-    const first = items[0];
-    if (!first) throw new Error(`${tool}: no interactive element with text containing "${s.text}"`);
-    return resolveTarget(page, { ref: first.ref }, tool);
+    const handle = await page.evaluateHandle(firstByText, INTERACTIVE_SELECTOR, s.text);
+    const el = handle.asElement();
+    if (!el) {
+      await handle.dispose().catch(() => {});
+      throw new Error(`${tool}: no visible interactive element with text containing "${s.text}"`);
+    }
+    return el as ElementHandle<Element>;
   }
   return resolveTarget(page, { ref: s.ref, selector: s.selector }, tool);
 }
@@ -69,10 +90,8 @@ async function runStep(mgr: SessionManager, sessionId: string | undefined, recor
     case "fill": {
       if (s.value === undefined) throw new Error(`${tool}: needs value`);
       const el = await resolveStepTarget(page, s, tool);
-      await el.click({ clickCount: 3 });
-      await page.keyboard.press("Backspace");
-      await el.type(s.value);
-      return `filled ${targetDesc}`;
+      const how = await fillElement(page, el, s.value);
+      return `${how === "selected" ? "selected" : "filled"} ${targetDesc}`;
     }
     case "select": {
       if (s.value === undefined) throw new Error(`${tool}: needs value`);
@@ -140,7 +159,7 @@ export function registerBatchTools(server: McpServer, mgr: SessionManager): void
         "Run a SEQUENCE of actions in one call (click / type / fill / select / key / hover / scroll / click_at / goto / " +
         "wait / wait_for), settling briefly between steps, and report ONE combined network/console/url delta at the end — " +
         "far faster than one tool call per step. Target steps by selector, by text (\"the button that says Login\"), or " +
-        "by ref (refs are only valid until the DOM changes, so prefer selector/text inside a batch). Stops at the first " +
+        "by ref (refs stay valid inside a batch — text targeting does not renumber them — but any step that changes the DOM invalidates them, so prefer selector/text after such a step). Stops at the first " +
         "failing step unless stopOnError:false. Set look:true to get a page_look (badged 1:1 screenshot + legend) of the " +
         "final state in the same reply, so you can pick the next target immediately.",
       inputSchema: {
@@ -178,9 +197,18 @@ export function registerBatchTools(server: McpServer, mgr: SessionManager): void
         });
         const content: CallToolResult["content"] = [{ type: "text", text: delta }];
         if (look) {
-          const page = mgr.pageFor(sessionId);
-          const { text, image } = await mgr.withPageLock(sessionId, () => captureLook(page, { limit: lookLimit }));
-          content.push({ type: "text", text: `\n--- look ---\n${text}` }, { type: "image", data: image.data, mimeType: "image/png" });
+          // The steps above already ran (and may have submitted something irreversible), so a failing
+          // capture must degrade to a note — never replace the step report + delta with an error.
+          try {
+            const page = mgr.pageFor(sessionId);
+            const { text, image } = await mgr.withPageLock(sessionId, () => captureLook(page, { limit: lookLimit }));
+            content.push({ type: "text", text: `\n--- look ---\n${text}` }, { type: "image", data: image.data, mimeType: "image/png" });
+          } catch (err) {
+            content.push({
+              type: "text",
+              text: `\n--- look failed: ${err instanceof Error ? err.message : String(err)} — the steps above still ran; call page_look separately ---`,
+            });
+          }
         }
         return failedAt >= 0 ? { content, isError: true } : { content };
       } catch (err) {

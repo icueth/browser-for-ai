@@ -78,6 +78,7 @@ export async function withDelta(
   // (network.maxSeq() lives in a different, endTs-inflated domain and would drop
   //  the earliest post-action requests.)
   const mark = recorder.seqNow();
+  recorder.lastActionMark = mark;
   const urlBefore = safeUrl(page);
 
   const res = await run(recorder, page);

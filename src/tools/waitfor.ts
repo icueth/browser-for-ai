@@ -9,6 +9,9 @@ import { guard } from "./guard";
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_TIMEOUT_MS = 60_000;
 const POLL_MS = 100;
+// A request still in flight blocks "network idle" only while it is younger than this: anything older
+// is treated as a long-lived stream (long-poll, SSE, a hung call) rather than a response worth waiting for.
+const INFLIGHT_MAX_AGE_MS = 5_000;
 
 export interface WaitCondition {
   selector?: string;
@@ -31,6 +34,17 @@ export function describeCondition(c: WaitCondition): string {
   return parts.join(" | ");
 }
 
+/** True while a request started since the last action is still awaiting its response (and is young
+ *  enough to plausibly get one). seqNow() only moves when requests START, so without this a form
+ *  submit would read as "idle" the instant it was sent, before its response landed. */
+function recentInFlight(recorder: Recorder, now: number): boolean {
+  return recorder.network.sinceSeq(recorder.lastActionMark).some((e) => {
+    if (e.finished || e.failed) return false;
+    const age = e.wallStart !== undefined ? now - e.wallStart * 1000 : 0;
+    return age < INFLIGHT_MAX_AGE_MS;
+  });
+}
+
 /** Poll until ANY of the conditions holds; resolves to a one-line description of what matched
  *  (with elapsed ms), rejects on timeout. Shared by page_wait_for and page_batch's wait_for step. */
 export async function waitFor(recorder: Recorder, page: Page, c: WaitCondition, timeoutMs: number): Promise<string> {
@@ -45,7 +59,14 @@ export async function waitFor(recorder: Recorder, page: Page, c: WaitCondition, 
     const now = Date.now();
     if (c.url && page.url().includes(c.url)) return `url matched "${c.url}" after ${now - start}ms`;
     if (c.selector) {
-      const el = await page.$(c.selector).catch(() => null);
+      let el: Awaited<ReturnType<Page["$"]>> = null;
+      try {
+        el = await page.$(c.selector);
+      } catch (err) {
+        // A malformed selector fails identically on every poll — surface it now instead of after a full timeout.
+        // (Anything else — e.g. the execution context being torn down by a navigation — is "not there yet".)
+        if (/not a valid selector|SyntaxError/i.test(String(err))) throw new Error(`wait_for: "${c.selector}" is not a valid CSS selector`);
+      }
       if (el) {
         await el.dispose().catch(() => {});
         return `selector "${c.selector}" appeared after ${now - start}ms`;
@@ -53,7 +74,9 @@ export async function waitFor(recorder: Recorder, page: Page, c: WaitCondition, 
     }
     if (c.text) {
       const t = c.text;
-      const hit = await page.evaluate((needle) => (document.body?.textContent ?? "").includes(needle), t).catch(() => false);
+      // innerText = rendered text only: an inline <script> JSON payload that merely CONTAINS the words
+      // must not count as "appeared" (textContent would).
+      const hit = await page.evaluate((needle) => (document.body?.innerText ?? "").includes(needle), t).catch(() => false);
       if (hit) return `text "${c.text}" appeared after ${now - start}ms`;
     }
     if (c.networkIdleMs) {
@@ -62,7 +85,9 @@ export async function waitFor(recorder: Recorder, page: Page, c: WaitCondition, 
         lastSeq = seq;
         lastChange = now;
       }
-      if (now - lastChange >= c.networkIdleMs) return `network idle for ${c.networkIdleMs}ms (after ${now - start}ms)`;
+      if (now - lastChange >= c.networkIdleMs && !recentInFlight(recorder, now)) {
+        return `network idle for ${c.networkIdleMs}ms (after ${now - start}ms)`;
+      }
     }
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw new Error(`wait_for: none of [${describeCondition(c)}] within ${timeoutMs}ms`);
@@ -83,7 +108,14 @@ export function registerWaitForTools(server: McpServer, mgr: SessionManager): vo
         selector: z.string().optional().describe("wait until this CSS selector matches an element"),
         text: z.string().optional().describe("wait until this text appears anywhere in the page"),
         url: z.string().optional().describe("wait until the page URL contains this substring"),
-        networkIdleMs: z.number().int().positive().optional().describe("wait until no network/console activity for this many ms"),
+        networkIdleMs: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            "wait until no new requests/console output for this many ms AND nothing started since your last action is still awaiting a response (requests older than 5 s — long-polls, streams, hung calls — do not block)",
+          ),
         timeoutMs: z.number().int().positive().max(MAX_TIMEOUT_MS).optional().describe(`give up after this many ms (default ${DEFAULT_TIMEOUT_MS})`),
       },
     },

@@ -22,6 +22,9 @@ export class Recorder {
   readonly console = new ConsoleBuffer();
   private client: CDPSession | null = null;
   private seq = 0;
+  /** Recorder seq at the start of the most recent action (set by withDelta) — the baseline for
+   *  "requests still in flight since your last action" used by page_wait_for's network-idle check. */
+  lastActionMark = 0;
   private bodyCache = new Map<string, { body: string; base64: boolean }>();
 
   constructor(private page: Page) {}

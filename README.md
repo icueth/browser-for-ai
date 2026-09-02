@@ -407,11 +407,11 @@ A normally-opened Chrome has **no** debug port, and **Chrome 136+ refuses one on
 
 ```bash
 # dedicated profile (recommended) — a window opens; log in there once, it persists
-./bin/bfa-chrome 9222
+./bfa-chrome 9222
 
 # …or reuse your existing logins via a COPY of your profile (a non-default dir)
 cp -R "$HOME/Library/Application Support/Google/Chrome" "$HOME/.bfa/real-copy"
-./bin/bfa-chrome 9222 "$HOME/.bfa/real-copy"
+./bfa-chrome 9222 "$HOME/.bfa/real-copy"
 ```
 
 Then: `browser_launch { "mode": "attach", "port": 9222 }`. (If the port isn't up, the

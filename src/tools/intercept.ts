@@ -57,7 +57,7 @@ export function registerInterceptTools(server: McpServer, mgr: SessionManager): 
   server.registerTool(
     "net_intercept_clear",
     {
-      description: "Clear all network intercept rules for a session (interception stays enabled; requests simply stop matching).",
+      description: "Clear all network intercept rules for a session (Fetch interception is switched OFF once no rules remain, so the page runs at native speed; adding a rule re-enables it).",
       inputSchema: { sessionId: z.string().optional() },
     },
     async ({ sessionId }) =>

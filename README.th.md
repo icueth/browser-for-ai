@@ -397,11 +397,11 @@ Chrome ที่เปิดปกติ**ไม่มี** debug port และ
 
 ```bash
 # profile เฉพาะ (แนะนำ) — หน้าต่างเด้งมา ล็อกอินในนั้นครั้งเดียว จำไว้เลย
-./bin/bfa-chrome 9222
+./bfa-chrome 9222
 
 # …หรือใช้ login เดิม ด้วยการ COPY profile ไป dir ใหม่ (ไม่ใช่ default)
 cp -R "$HOME/Library/Application Support/Google/Chrome" "$HOME/.bfa/real-copy"
-./bin/bfa-chrome 9222 "$HOME/.bfa/real-copy"
+./bfa-chrome 9222 "$HOME/.bfa/real-copy"
 ```
 
 แล้ว: `browser_launch { "mode": "attach", "port": 9222 }` (ถ้า port ยังไม่ขึ้น error ของ tool จะ

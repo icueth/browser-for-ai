@@ -243,7 +243,7 @@ export function registerFlowTools(server: McpServer, mgr: SessionManager): void 
     "flow_export",
     {
       description:
-        "Export the captured network calls since the last flow_mark (or the whole buffer) as a compact JSON summary (calls + detected cross-call dependencies) or a HAR document. Dependency detection is exact-match (v1): a value that came verbatim from an earlier response is lifted to a variable; unmatched values (base64/encoded/JWT-internal, user-supplied literals) stay literal for you to review, and a request input echoed back in a response may be over-chained.",
+        "Export the captured network calls since the last flow_mark (or the whole buffer) as a compact JSON summary (calls + detected cross-call dependencies) or a HAR document. Dependency detection (exact / url-encoded / base64 / JWT-claim / substring): a value that came verbatim from an earlier response is lifted to a variable; unmatched values (base64/encoded/JWT-internal, user-supplied literals) stay literal for you to review, and a request input echoed back in a response may be over-chained.",
       inputSchema: {
         sessionId: z.string().optional(),
         sinceSeq: z.number().int().nonnegative().optional().describe("override the window start; default is the session's flow_mark, else 0"),
@@ -266,7 +266,7 @@ export function registerFlowTools(server: McpServer, mgr: SessionManager): void 
     "flow_synthesize",
     {
       description:
-        "Synthesize replay code (curl/TypeScript/Go/Python) for the captured network calls since the last flow_mark (or the whole buffer), chaining detected dependencies (e.g. an auth token from one response into a later request) as variables instead of baked-in literals. Dependency detection is exact-match (v1): a value that came verbatim from an earlier response is lifted to a variable; unmatched values (base64/encoded/JWT-internal, user-supplied literals) stay literal for you to review, and a request input echoed back in a response may be over-chained.",
+        "Synthesize replay code (curl/TypeScript/Go/Python) for the captured network calls since the last flow_mark (or the whole buffer), chaining detected dependencies (e.g. an auth token from one response into a later request) as variables instead of baked-in literals. Dependency detection (exact / url-encoded / base64 / JWT-claim / substring): a value that came verbatim from an earlier response is lifted to a variable; unmatched values (base64/encoded/JWT-internal, user-supplied literals) stay literal for you to review, and a request input echoed back in a response may be over-chained.",
       inputSchema: {
         sessionId: z.string().optional(),
         sinceSeq: z.number().int().nonnegative().optional().describe("override the window start; default is the session's flow_mark, else 0"),
