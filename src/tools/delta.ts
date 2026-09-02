@@ -8,6 +8,38 @@ import { truncate } from "../format/compact";
 const DEFAULT_WAIT_MS = 700;
 export const DELTA_ROW_CAP = 50;
 
+const SETTLE_POLL_MS = 40;
+const SETTLE_MIN_MS = 120; // always give an action's first effects a moment to be recorded
+const SETTLE_QUIET_MS = 250; // no recorder activity for this long (and nothing in flight) = settled
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Wait until the page goes quiet after an action — no new recorder events (requests, socket
+ *  frames, console) for SETTLE_QUIET_MS and no request started since `mark` still in flight — or
+ *  until `capMs` elapses, whichever comes first. Replaces the old fixed sleep: a click that
+ *  triggers nothing returns in ~250 ms instead of 700, while a slow flow still gets its full cap. */
+export async function settle(recorder: Recorder, mark: number, capMs: number): Promise<void> {
+  if (capMs <= 0) return;
+  const start = Date.now();
+  let lastSeq = recorder.seqNow();
+  let lastChange = start;
+  for (;;) {
+    await sleep(SETTLE_POLL_MS);
+    const now = Date.now();
+    const seq = recorder.seqNow();
+    if (seq !== lastSeq) {
+      lastSeq = seq;
+      lastChange = now;
+    }
+    if (now - start >= capMs) return;
+    if (now - start < SETTLE_MIN_MS || now - lastChange < SETTLE_QUIET_MS) continue;
+    const inFlight = recorder.network.sinceSeq(mark).some((e) => !e.finished && !e.failed);
+    if (!inFlight) return;
+  }
+}
+
 /** JSON-summarize an eval result; falls back to String() for values JSON can't represent
  *  (undefined, functions, circular refs, BigInt) so a hostile/odd expression never throws here.
  *  Shared by page_observe's eval action and the standalone page_eval tool. */
@@ -29,9 +61,10 @@ function safeUrl(page: Page): string {
 }
 
 /** Runs `run` between a recorder mark and a settle wait, then returns the compact
- *  network/console/url delta it caused. Every Phase 2 interaction tool routes through
- *  this so actions report their side-effects without extra tool calls. `run` may return
- *  an optional `note` (e.g. an eval result) appended to the delta header. */
+ *  network/console/url delta it caused. Every interaction tool routes through this so
+ *  actions report their side-effects without extra tool calls. `run` may return an optional
+ *  `note` (e.g. an eval result) appended to the delta header. `waitMs` is the settle CAP: the
+ *  delta is reported as soon as the page is quiet, or when the cap elapses. */
 export async function withDelta(
   mgr: SessionManager,
   sessionId: string | undefined,
@@ -49,8 +82,7 @@ export async function withDelta(
 
   const res = await run(recorder, page);
 
-  const wait = waitMs ?? DEFAULT_WAIT_MS;
-  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  await settle(recorder, mark, waitMs ?? DEFAULT_WAIT_MS);
 
   const urlAfter = safeUrl(page);
   const newNet = recorder.network.sinceSeq(mark);

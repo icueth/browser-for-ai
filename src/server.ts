@@ -24,6 +24,8 @@ import { registerFindTools } from "./tools/find";
 import { registerReadTools } from "./tools/read";
 import { registerLookTools } from "./tools/look";
 import { registerRecoverTools } from "./tools/recover";
+import { registerWaitForTools } from "./tools/waitfor";
+import { registerBatchTools } from "./tools/batch";
 
 const BFA_INSTRUCTIONS = [
   "browser-for-ai drives a real Chrome over CDP for deep inspection and API-flow reverse-engineering.",
@@ -34,6 +36,12 @@ const BFA_INSTRUCTIONS = [
   '• Need real logins / a human-looking browser (navigator.webdriver=false, real profile & fingerprint) →',
   '  mode:"attach", port:9222, AFTER the user starts Chrome with `bin/bfa-chrome 9222` (Chrome 136+ needs a',
   "  non-default profile, which bfa-chrome uses). You cannot attach to an already-open normal Chrome — no debug port.",
+  "",
+  "SPEED: every model round-trip costs seconds, so (1) use page_batch to run a whole sequence (fill → click →",
+  "wait_for → …) in ONE call, with look:true to see the result + next targets in the same reply; (2) never sleep —",
+  "page_wait_for / net_wait return the moment the condition holds, and every action already settles on its own;",
+  "(3) call independent read tools (net_list, console_errors, page_read …) in parallel in one turn; (4) page_look",
+  "gives badge numbers to click by ref — no coordinate arithmetic.",
   "",
   "Typical loop: page_goto → read with net_*/console_*/page_snapshot → act with page_click/type/fill/upload →",
   "reverse an API with flow_mark → flow_synthesize (curl/ts/go/python) → flow_replay to verify. net_get and",
@@ -69,6 +77,8 @@ export function createServer(): { server: McpServer; mgr: SessionManager } {
   registerReadTools(server, mgr);
   registerLookTools(server, mgr);
   registerRecoverTools(server, mgr);
+  registerWaitForTools(server, mgr);
+  registerBatchTools(server, mgr);
   return { server, mgr };
 }
 
