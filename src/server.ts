@@ -96,8 +96,11 @@ async function main(): Promise<void> {
     // Arm the hard exit FIRST: if teardown itself wedges (hung renderer, open modal), the process
     // must still die — and take the Chromes it owns with it — instead of orphaning them with the
     // profile lock held and the human left to force-quit.
+    // Snapshot NOW: shutdown() empties the session registry synchronously as its first step, so a
+    // lookup at fire time would find nothing to kill and silently orphan a wedged Chrome.
+    const owned = mgr.ownedProcesses();
     setTimeout(() => {
-      for (const p of mgr.ownedProcesses()) {
+      for (const p of owned) {
         try {
           p.kill("SIGKILL");
         } catch {

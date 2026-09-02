@@ -35,8 +35,15 @@ export function registerInterceptTools(server: McpServer, mgr: SessionManager): 
     async ({ sessionId, urlPattern, action, status, body, contentType, setHeaders }) =>
       guard(async () => {
         const interceptor = mgr.interceptorFor(sessionId);
-        await interceptor.enable();
+        // Register the rule BEFORE enabling: enable() re-arms itself when rules exist after a racing
+        // clear(), so a pipelined add/clear/add can never end with a rule that Fetch isn't serving.
         const rule = interceptor.add({ urlPattern, action, status, body, contentType, setHeaders });
+        try {
+          await interceptor.enable();
+        } catch (err) {
+          await interceptor.remove(rule.id).catch(() => {});
+          throw err;
+        }
         return ok(`rule #${rule.id} added: ${action} ${urlPattern}`);
       }),
   );

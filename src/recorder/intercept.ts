@@ -35,6 +35,8 @@ type RequestPausedEvt = {
 export class Interceptor {
   private client: CDPSession | null = null;
   private enabling: Promise<void> | null = null;
+  // Bumped by every disable(); an enable() started under an older generation must not publish its session.
+  private gen = 0;
   private rules: Rule[] = [];
   private nextId = 1;
 
@@ -53,9 +55,21 @@ export class Interceptor {
    *  also double-handles every paused request. */
   async enable(): Promise<void> {
     if (this.client) return;
-    if (this.enabling) return this.enabling;
+    if (this.enabling) {
+      await this.enabling;
+      // The shared attempt may have been cancelled by a disable() that raced it; if rules still want
+      // interception, start a fresh attempt under the current generation.
+      if (!this.client && this.rules.length > 0) return this.enable();
+      return;
+    }
+    const gen = this.gen;
     this.enabling = (async () => {
       const client = await this.page.createCDPSession();
+      if (gen !== this.gen) {
+        // disable()/clear() ran while we were connecting: never publish this session.
+        await client.detach().catch(() => {});
+        return;
+      }
       // Register the handler BEFORE enabling Fetch, matching the Recorder's own ordering, so no
       // paused request can arrive before something is listening to resolve it. The handler
       // closes over THIS session (not this.client) so a request paused before this.client is
@@ -68,6 +82,11 @@ export class Interceptor {
         });
       });
       await client.send("Fetch.enable", {});
+      if (gen !== this.gen) {
+        await client.send("Fetch.disable").catch(() => {});
+        await client.detach().catch(() => {});
+        return;
+      }
       this.client = client;
     })();
     try {
@@ -75,6 +94,13 @@ export class Interceptor {
     } finally {
       this.enabling = null;
     }
+    if (!this.client && this.rules.length > 0) return this.enable();
+  }
+
+  /** Drop one rule (used when enabling Fetch for a just-added rule fails). Turns Fetch off if it was the last. */
+  async remove(id: number): Promise<void> {
+    this.rules = this.rules.filter((r) => r.id !== id);
+    if (this.rules.length === 0) await this.disable();
   }
 
   add(rule: Omit<Rule, "id">): Rule {
@@ -95,6 +121,9 @@ export class Interceptor {
   }
 
   async disable(): Promise<void> {
+    // Invalidate any enable() still connecting: it will tear its own session down instead of
+    // publishing it, so Fetch can never end up ON with zero rules.
+    this.gen++;
     const client = this.client;
     this.client = null;
     if (!client) return;

@@ -387,13 +387,19 @@ export class SessionManager {
 
   async close(id?: SessionId, all = false): Promise<SessionId[]> {
     const targets = all ? this.registry.removeAll() : compact(this.removeOne(this.resolveId(id)));
-    for (const s of targets) await this.disposeSession(s);
+    await this.disposeAll(targets);
     return targets.map((s) => s.id);
   }
 
   async shutdown(): Promise<void> {
-    const sessions = this.registry.removeAll();
-    // Tear down in parallel under one budget; anything that outlives it is killed (owned only).
+    await this.disposeAll(this.registry.removeAll());
+  }
+
+  /** Tear sessions down in PARALLEL under ONE budget — `browser_close {all:true}` with three pinned
+   *  tabs must take ~12 s, not 3 × 12 s. Anything owned that outlives the budget is SIGKILLed;
+   *  attached browsers are never killed (we only ever disconnect from them). */
+  private async disposeAll(sessions: Session[]): Promise<void> {
+    if (sessions.length === 0) return;
     await bounded(Promise.allSettled(sessions.map((s) => this.disposeSession(s))).then(() => undefined), 12_000, undefined);
     for (const s of sessions) {
       if (!s.ownsBrowser) continue;

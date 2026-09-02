@@ -114,4 +114,21 @@ describe.skipIf(!chromeAvailable)("hang-proofing e2e", () => {
     expect(text(closed)).toContain(sid!);
     expect(dt).toBeLessThan(15_000); // the force-quit scenario, now bounded
   }, 40_000);
+it("browser_close {all:true} with TWO pinned sessions is bounded (parallel teardown, not N × budget)", async () => {
+    const a = await client.callTool({ name: "browser_launch", arguments: { mode: "fresh", headless: true, url: fixture.url } });
+    const b = await client.callTool({ name: "browser_launch", arguments: { mode: "fresh", headless: true, url: fixture.url } });
+    expect(a.isError).toBeFalsy();
+    expect(b.isError).toBeFalsy();
+    const ids = [a, b].map((r) => text(r).match(/session (s\d+)/)![1]!);
+    await new Promise((r) => setTimeout(r, 300));
+    for (const id of ids) {
+      const armed = await client.callTool({ name: "page_eval", arguments: { sessionId: id, expression: SPIN_FOREVER, timeoutMs: 3000 } });
+      expect(text(armed)).toContain("armed");
+    }
+    const t0 = Date.now();
+    const r = await client.callTool({ name: "browser_close", arguments: { all: true } });
+    const dt = Date.now() - t0;
+    expect(r.isError).toBeFalsy();
+    expect(dt).toBeLessThan(16_000);
+  }, 60_000);
 });
