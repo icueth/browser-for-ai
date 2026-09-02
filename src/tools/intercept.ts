@@ -64,7 +64,7 @@ export function registerInterceptTools(server: McpServer, mgr: SessionManager): 
       guard(async () => {
         const interceptor = mgr.interceptorFor(sessionId);
         const n = interceptor.list().length;
-        interceptor.clear();
+        await interceptor.clear();
         return ok(`cleared ${n} rules`);
       }),
   );

@@ -4,6 +4,7 @@ import type { SessionManager } from "../session/manager";
 import { ok, fail } from "../format/compact";
 import { guard } from "./guard";
 import { withDelta, summarizeEvalResult } from "./delta";
+import { boundedEval } from "./evalx";
 
 export function registerObserveTools(server: McpServer, mgr: SessionManager): void {
   server.registerTool(
@@ -45,7 +46,7 @@ export function registerObserveTools(server: McpServer, mgr: SessionManager): vo
                 await recorder.hardReload();
                 return;
               case "eval":
-                return { note: "eval → " + summarizeEvalResult(await page.evaluate(action.expression!)) };
+                return { note: "eval → " + summarizeEvalResult(await boundedEval(recorder, page, action.expression!)) };
               case "wait":
                 return;
             }

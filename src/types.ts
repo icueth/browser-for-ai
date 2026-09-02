@@ -50,6 +50,8 @@ export interface Session {
   ownsBrowser: boolean;
   /** set when launchFresh created an ephemeral userDataDir (no profile given); removed on teardown. */
   tempDir?: string;
+  /** detaches browser-level listeners (e.g. the targetcreated dialog guard) on teardown. */
+  cleanup?: () => void;
 }
 
 // Deliberately a `type` alias, not an `interface`. McpServer's registerTool callback return

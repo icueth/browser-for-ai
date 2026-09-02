@@ -27,6 +27,10 @@ type RequestPausedEvt = {
  * Owns a dedicated CDPSession for `Fetch` interception, kept separate from the Recorder's own
  * CDPSession (src/recorder/recorder.ts) so enabling/disabling Fetch never disturbs the
  * Network/Runtime/Log domains the recorder depends on.
+ *
+ * Fetch is only kept enabled while at least one rule exists: with Fetch on, EVERY request of the
+ * tab is held in Chrome until we answer it, so a bfa process that is stopped (not killed) or a
+ * rule set that was cleared but left the domain on would wedge the whole page.
  */
 export class Interceptor {
   private client: CDPSession | null = null;
@@ -53,9 +57,11 @@ export class Interceptor {
     this.enabling = (async () => {
       const client = await this.page.createCDPSession();
       // Register the handler BEFORE enabling Fetch, matching the Recorder's own ordering, so no
-      // paused request can arrive before something is listening to resolve it.
+      // paused request can arrive before something is listening to resolve it. The handler
+      // closes over THIS session (not this.client) so a request paused before this.client is
+      // published — or after it is cleared — is still continued rather than left hanging.
       client.on("Fetch.requestPaused", (e) => {
-        this.onPaused(e as RequestPausedEvt).catch(() => {
+        this.onPaused(client, e as RequestPausedEvt).catch(() => {
           // onPaused already guards its own body and best-effort continues on error; this catch
           // only exists so a rejected promise from the event handler never becomes an unhandled
           // rejection that could crash the process.
@@ -81,24 +87,37 @@ export class Interceptor {
     return [...this.rules];
   }
 
-  /** Empties the rule set. Fetch interception stays enabled (cheapest safe default — every
-   *  paused request already falls through to an immediate continue once no rule matches). */
-  clear(): void {
+  /** Empties the rule set AND turns Fetch off (see the class comment) — the next add() re-enables
+   *  it lazily via enable(). */
+  async clear(): Promise<void> {
     this.rules = [];
+    await this.disable();
   }
 
   async disable(): Promise<void> {
+    const client = this.client;
+    this.client = null;
+    if (!client) return;
     try {
-      await this.client?.detach();
+      await client.send("Fetch.disable");
+    } catch {
+      // session may already be gone
+    }
+    try {
+      await client.detach();
     } catch {
       // best-effort teardown
     }
-    this.client = null;
   }
 
-  private async onPaused(e: RequestPausedEvt): Promise<void> {
-    const client = this.client;
-    if (!client) return;
+  /** Forget the session without detaching — for teardown paths that close/disconnect the whole
+   *  browser connection anyway (see Recorder.abandon). */
+  abandon(): void {
+    this.client = null;
+    this.enabling = null;
+  }
+
+  private async onPaused(client: CDPSession, e: RequestPausedEvt): Promise<void> {
     try {
       const rule = this.rules.find((r) => e.request.url.includes(r.urlPattern));
       if (!rule) {

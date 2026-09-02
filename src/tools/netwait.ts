@@ -52,7 +52,7 @@ export function registerNetWaitTools(server: McpServer, mgr: SessionManager): vo
         urlIncludes: z.string().optional().describe("substring match against the request url"),
         method: z.string().optional().describe("e.g. GET, POST"),
         status: z.number().int().optional(),
-        timeoutMs: z.number().int().positive().optional().describe("max time to wait in ms (default 10000)"),
+        timeoutMs: z.number().int().positive().max(60000).optional().describe("max time to wait in ms (default 10000, max 60000)"),
         requireFinished: z.boolean().optional().describe("only match once the request has finished (default false)"),
       },
     },

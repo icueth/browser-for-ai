@@ -21,15 +21,17 @@ export function registerPageTools(server: McpServer, mgr: SessionManager): void 
   server.registerTool(
     "page_state",
     {
-      description: "Report current page state: url, title, readyState, viewport.",
+      description: "Report current page state: url, title, readyState, viewport, and any active net_throttle emulation.",
       inputSchema: { sessionId: z.string().optional() },
     },
     async ({ sessionId }) =>
       guard(async () => {
         const st = await mgr.state(sessionId);
         const vp = st.viewport ? `${st.viewport.width}x${st.viewport.height}` : "default";
+        const note = mgr.getEmulationNote(sessionId);
         return ok(
-          `session ${st.sessionId} (${st.mode})\nurl: ${st.url}\ntitle: ${st.title ?? ""}\nreadyState: ${st.readyState}\nviewport: ${vp}`,
+          `session ${st.sessionId} (${st.mode})\nurl: ${st.url}\ntitle: ${st.title ?? ""}\nreadyState: ${st.readyState}\nviewport: ${vp}` +
+            (note ? `\nthrottle: ${note} (net_throttle {preset:"none"} to reset)` : ""),
         );
       }),
   );

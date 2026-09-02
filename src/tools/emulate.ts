@@ -14,9 +14,15 @@ const PRESETS: Record<"slow-3g" | "fast-3g" | "fast-4g", NetworkConditions> = {
   "fast-4g": { download: 4_000_000 / 8, upload: 3_000_000 / 8, latency: 20 },
 };
 
+/** DevTools' own presets top out at 20x; beyond a few hundred the renderer can't even process the
+ *  reset command any more (measured), so the tab is bricked until the session ends. */
+const MAX_CPU_RATE = 20;
+
 /** Registers net_throttle — emulate degraded network + CPU for the session over CDP. Being
  *  CDP-native, this is a thin wrapper over puppeteer's own emulation, but it bundles the common
- *  presets and a reset into one tool so callers don't compose three primitives by hand. */
+ *  presets and a reset into one tool so callers don't compose three primitives by hand. The
+ *  applied state persists across navigations/reloads until reset or session close, and is
+ *  surfaced by page_state so nobody has to guess why a page crawls. */
 export function registerEmulateTools(server: McpServer, mgr: SessionManager): void {
   server.registerTool(
     "net_throttle",
@@ -24,7 +30,8 @@ export function registerEmulateTools(server: McpServer, mgr: SessionManager): vo
       description:
         "Emulate network + CPU conditions for the session (CDP). Use a preset " +
         "(offline / slow-3g / fast-3g / fast-4g / none), or custom throughput+latency, plus an " +
-        "optional CPU slowdown factor. 'none' (the default) resets everything back to full speed.",
+        "optional CPU slowdown factor (max 20x). 'none' (the default) resets everything back to full speed. " +
+        "The state persists across page_goto/reload until reset or the session closes (page_state shows it).",
       inputSchema: {
         sessionId: z.string().optional(),
         preset: z
@@ -35,7 +42,7 @@ export function registerEmulateTools(server: McpServer, mgr: SessionManager): vo
         downloadKbps: z.number().nonnegative().optional().describe("custom download throughput, kilobits/s"),
         uploadKbps: z.number().nonnegative().optional().describe("custom upload throughput, kilobits/s"),
         latencyMs: z.number().nonnegative().optional().describe("custom added latency, ms"),
-        cpuRate: z.number().min(1).optional().describe("CPU slowdown factor: 1 = none, 4 = 4x slower"),
+        cpuRate: z.number().min(1).max(MAX_CPU_RATE).optional().describe(`CPU slowdown factor: 1 = none, 4 = 4x slower (max ${MAX_CPU_RATE})`),
       },
     },
     async ({ sessionId, preset, offline, downloadKbps, uploadKbps, latencyMs, cpuRate }) =>
@@ -67,14 +74,16 @@ export function registerEmulateTools(server: McpServer, mgr: SessionManager): vo
           await page.emulateNetworkConditions(conditions);
         }
 
-        // CPU: an explicit rate, or reset to 1x on a bare 'none'.
+        // CPU: an explicit rate (clamped defensively even though the schema caps it), or reset on a bare 'none'.
         if (cpuRate !== undefined) {
-          await page.emulateCPUThrottling(cpuRate === 1 ? null : cpuRate);
-          if (cpuRate > 1) applied.push(`cpu ${cpuRate}x`);
+          const rate = Math.min(cpuRate, MAX_CPU_RATE);
+          await page.emulateCPUThrottling(rate === 1 ? null : rate);
+          if (rate > 1) applied.push(`cpu ${rate}x`);
         } else if (preset === "none" && !hasCustom && offline === undefined) {
           await page.emulateCPUThrottling(null);
         }
 
+        mgr.setEmulationNote(sessionId, applied.length ? applied.join(", ") : null);
         return ok(applied.length ? `throttle applied: ${applied.join(", ")}` : "throttle reset (full speed)");
       }),
   );

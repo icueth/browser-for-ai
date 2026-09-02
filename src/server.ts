@@ -23,6 +23,7 @@ import { registerEmulateTools } from "./tools/emulate";
 import { registerFindTools } from "./tools/find";
 import { registerReadTools } from "./tools/read";
 import { registerLookTools } from "./tools/look";
+import { registerRecoverTools } from "./tools/recover";
 
 const BFA_INSTRUCTIONS = [
   "browser-for-ai drives a real Chrome over CDP for deep inspection and API-flow reverse-engineering.",
@@ -38,6 +39,10 @@ const BFA_INSTRUCTIONS = [
   "reverse an API with flow_mark → flow_synthesize (curl/ts/go/python) → flow_replay to verify. net_get and",
   "flow_export show the COMPLETE on-the-wire headers (Cookie + custom signing headers); a failing flow_replay",
   "usually means a computed header (e.g. a signature) still needs reproducing in your own code.",
+  "",
+  "If tools start timing out or a tab stops responding, the page's JS is probably pinned: run browser_recover",
+  "(terminates the script; disables page scripts if it re-spins). browser_close is always bounded and force-kills",
+  "an owned Chrome that won't exit. page_eval has a time budget (timeoutMs) and terminates runaway expressions.",
 ].join("\n");
 
 export function createServer(): { server: McpServer; mgr: SessionManager } {
@@ -63,6 +68,7 @@ export function createServer(): { server: McpServer; mgr: SessionManager } {
   registerFindTools(server, mgr);
   registerReadTools(server, mgr);
   registerLookTools(server, mgr);
+  registerRecoverTools(server, mgr);
   return { server, mgr };
 }
 
@@ -77,16 +83,28 @@ async function main(): Promise<void> {
   const shutdown = async (): Promise<void> => {
     if (closing) return;
     closing = true;
+    // Arm the hard exit FIRST: if teardown itself wedges (hung renderer, open modal), the process
+    // must still die — and take the Chromes it owns with it — instead of orphaning them with the
+    // profile lock held and the human left to force-quit.
+    setTimeout(() => {
+      for (const p of mgr.ownedProcesses()) {
+        try {
+          p.kill("SIGKILL");
+        } catch {
+          // already gone
+        }
+      }
+      process.exit(0);
+    }, 15_000).unref();
     try {
       await mgr.shutdown();
     } catch {
       // never let a teardown failure stop the process from exiting
     }
-    // Do NOT process.exit() here. stdin EOF arrives while responses to already-buffered
-    // requests are still in flight, and exiting synchronously truncates them. Closing the
-    // browsers above releases the CDP sockets that were holding the event loop open, so the
-    // process now ends on its own once stdout has drained. The unref'd timer is the backstop
-    // for anything still holding the loop — it cannot itself keep the process alive.
+    // Do NOT process.exit() synchronously here: stdin EOF arrives while responses to already-
+    // buffered requests are still in flight, and exiting immediately truncates them. Closing the
+    // browsers above releases the CDP sockets that held the event loop open, so the process now
+    // ends on its own once stdout has drained; the unref'd timer only backstops that.
     setTimeout(() => process.exit(0), 500).unref();
   };
 
@@ -104,6 +122,13 @@ async function main(): Promise<void> {
   // Last resort: `exit` handlers must be synchronous, so this can only unlink dirs — but it
   // catches the paths where async shutdown never got to run.
   process.on("exit", () => {
+    for (const p of mgr.ownedProcesses()) {
+      try {
+        p.kill("SIGKILL");
+      } catch {
+        // already gone
+      }
+    }
     for (const dir of mgr.tempDirs()) {
       try {
         rmSync(dir, { recursive: true, force: true });

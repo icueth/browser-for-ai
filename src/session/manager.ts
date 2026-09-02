@@ -1,7 +1,8 @@
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtempSync, readdirSync, readlinkSync, rmSync, statSync } from "node:fs";
-import puppeteer, { type Browser, type BrowserContext, type Page } from "puppeteer-core";
+import type { ChildProcess } from "node:child_process";
+import puppeteer, { type Browser, type BrowserContext, type Page, type Target } from "puppeteer-core";
 import { SessionRegistry } from "./registry";
 import { resolveChromePath } from "./chrome-path";
 import { Recorder } from "../recorder/recorder";
@@ -30,6 +31,46 @@ async function applyViewport(page: Page, opts: LaunchOptions): Promise<void> {
   });
 }
 
+/** How long one CDP round-trip may take before puppeteer gives up. Its default is 180 s — with a
+ *  renderer pinned by a script that means EVERY page-level tool blocks for three minutes. */
+const PROTOCOL_TIMEOUT_MS = 30_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Await `p` for at most `ms`; on timeout (or rejection) resolve to `fallback` instead of hanging.
+ *  For best-effort teardown/probe steps only — it never throws. */
+async function bounded<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let t: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      p.catch(() => fallback),
+      new Promise<T>((r) => {
+        t = setTimeout(() => r(fallback), ms);
+      }),
+    ]);
+  } finally {
+    if (t) clearTimeout(t);
+  }
+}
+
+/** Native dialogs must never be left open — puppeteer blocks on them and every later tool call
+ *  hangs. But the TYPE matters: dismiss() on a beforeunload prompt means "Stay on page", which
+ *  silently cancels the human's own Cmd+W / Cmd+Q / close click and any reload, leaving Chrome
+ *  closable only by force-quit (a real field report). So: ACCEPT beforeunload (= leave), DISMISS
+ *  everything else (never confirms a destructive confirm()). */
+function installDialogGuard(page: Page): void {
+  page.on("dialog", (d) => {
+    (d.type() === "beforeunload" ? d.accept() : d.dismiss()).catch(() => {});
+  });
+}
+
+/** Undo emulation a session may have left on the page (net_throttle offline / 3G / CPU). */
+async function resetEmulation(page: Page): Promise<void> {
+  await Promise.allSettled([page.setOfflineMode(false), page.emulateNetworkConditions(null), page.emulateCPUThrottling(null)]);
+}
+
 /** Puppeteer's default launch args include `--use-mock-keychain` (macOS) and `--password-store=basic`,
  *  which make Chrome unable to decrypt cookies encrypted with the REAL OS keystore. On a PERSISTENT
  *  (named) profile — which may hold logins written by your real Chrome — Chrome reacts by discarding
@@ -45,6 +86,8 @@ export class SessionManager {
   private registry = new SessionRegistry();
   private flowMarks = new Map<SessionId, number>();
   private interceptors = new Map<SessionId, Interceptor>();
+  private emulation = new Map<SessionId, string>();
+  private locks = new Map<SessionId, Promise<void>>();
 
   async launch(opts: LaunchOptions): Promise<SessionInfo> {
     if (opts.mode === "attach") return this.attach(opts);
@@ -75,6 +118,7 @@ export class SessionManager {
         // puppeteer's 800x600 default (which otherwise renders the site in a small top-left box).
         // An explicit opts.viewport still overrides this via applyViewport below.
         defaultViewport: null,
+        protocolTimeout: PROTOCOL_TIMEOUT_MS,
         // Named profiles keep the real OS keystore so existing logins/cookies aren't wiped on launch.
         ...keychainOverrides(profileName),
         args: ["--no-first-run", "--no-default-browser-check"],
@@ -90,13 +134,25 @@ export class SessionManager {
         : browser.defaultBrowserContext();
       const page: Page = await context.newPage();
       await applyViewport(page, opts);
-      // Auto-dismiss native dialogs (confirm()/alert()/beforeunload). Without this, puppeteer
-      // blocks on any open dialog and every subsequent tool call hangs — dismiss (not accept)
-      // is the safe default since it never confirms a destructive action. Best-effort: the
-      // dialog is already gone by the time dismiss() would reject, so a failure here is inert.
-      page.on("dialog", (d) => {
-        d.dismiss().catch(() => {});
-      });
+      installDialogGuard(page);
+      // We own this browser: guard dialogs in popups / new tabs the page opens as well, so an
+      // alert() in a popup can't wedge a later tool call for the whole protocol timeout.
+      const onTarget = (t: Target): void => {
+        t.page()
+          .then((p) => {
+            if (p) installDialogGuard(p);
+          })
+          .catch(() => {});
+      };
+      const owned: Browser = browser;
+      owned.on("targetcreated", onTarget);
+      const cleanup = (): void => {
+        try {
+          owned.off("targetcreated", onTarget);
+        } catch {
+          // browser already gone
+        }
+      };
       // Start the recorder BEFORE navigating: the fixture's inline <script> fires console/fetch
       // calls synchronously as the page loads, so a recorder started after goto() would miss them.
       const recorder = new Recorder(page);
@@ -111,6 +167,7 @@ export class SessionManager {
         recorder,
         ownsBrowser: true,
         tempDir,
+        cleanup,
       });
       return await this.toInfo(session);
     } catch (err) {
@@ -136,7 +193,11 @@ export class SessionManager {
     try {
       // defaultViewport:null so the attached page keeps the real Chrome window size — without it
       // puppeteer clamps the layout viewport to 800x600 and the site renders in a small corner.
-      browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${port}`, defaultViewport: null });
+      browser = await puppeteer.connect({
+        browserURL: `http://127.0.0.1:${port}`,
+        defaultViewport: null,
+        protocolTimeout: PROTOCOL_TIMEOUT_MS,
+      });
     } catch (err) {
       // The overwhelmingly common failure is "nothing is listening on the debug port". Puppeteer
       // reports it as an opaque "fetch failed"; turn that into the exact fix, since neither the
@@ -160,11 +221,9 @@ export class SessionManager {
       const pages = await browser.pages();
       const page: Page = pages[0] ?? (await context.newPage());
       await applyViewport(page, opts);
-      // Same reasoning as launchFresh: an attached page can still open a native dialog and
-      // stall every subsequent tool call if nothing auto-resolves it.
-      page.on("dialog", (d) => {
-        d.dismiss().catch(() => {});
-      });
+      // Only the page we drive gets the guard in attach mode: this is the user's real Chrome, and
+      // auto-answering dialogs in tabs we don't control would be hijacking their browsing.
+      installDialogGuard(page);
       const recorder = new Recorder(page);
       await recorder.start();
       if (opts.url) await page.goto(opts.url, { waitUntil: "load" });
@@ -226,7 +285,7 @@ export class SessionManager {
     const out: { index: number; url: string; title: string; active: boolean }[] = [];
     for (let i = 0; i < pages.length; i++) {
       const p = pages[i]!;
-      out.push({ index: i, url: p.url(), title: await p.title(), active: p === s.page });
+      out.push({ index: i, url: p.url(), title: await bounded(p.title(), 2000, ""), active: p === s.page });
     }
     return out;
   }
@@ -248,6 +307,50 @@ export class SessionManager {
   getFlowMark(id?: SessionId): number | undefined {
     const s = this.require(id);
     return this.flowMarks.get(s.id);
+  }
+
+  modeOf(id?: SessionId): "fresh" | "attach" {
+    return this.require(id).mode;
+  }
+
+  /** Emulation currently applied by net_throttle, surfaced by page_state — it silently persists
+   *  across navigations and reloads, so the agent should see it rather than guess why a page crawls. */
+  setEmulationNote(id: SessionId | undefined, note: string | null): void {
+    const s = this.require(id);
+    if (note) this.emulation.set(s.id, note);
+    else this.emulation.delete(s.id);
+  }
+
+  getEmulationNote(id?: SessionId): string | null {
+    return this.emulation.get(this.require(id).id) ?? null;
+  }
+
+  /** Serialize page-mutating captures (page_look's overlay, page_screenshot) per session, so two
+   *  overlapping calls can't remove each other's overlay or re-number refs mid-capture. */
+  async withPageLock<T>(id: SessionId | undefined, fn: () => Promise<T>): Promise<T> {
+    const s = this.require(id);
+    const prev = this.locks.get(s.id) ?? Promise.resolve();
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    this.locks.set(s.id, prev.then(() => gate));
+    await prev;
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  }
+
+  /** Owned Chrome child processes still registered — server.ts's last-resort exit hook kills these. */
+  ownedProcesses(): ChildProcess[] {
+    const out: ChildProcess[] = [];
+    for (const s of this.registry.list()) {
+      const p = s.ownsBrowser ? s.browser.process() : null;
+      if (p) out.push(p);
+    }
+    return out;
   }
 
   pageFor(id?: SessionId): Page {
@@ -278,7 +381,7 @@ export class SessionManager {
   ): Promise<SessionInfo & { readyState: string; viewport: { width: number; height: number } | null }> {
     const s = this.require(id);
     const info = await this.toInfo(s);
-    const readyState = await s.page.evaluate(() => document.readyState);
+    const readyState = await bounded(s.page.evaluate(() => document.readyState), 3000, "unknown");
     return { ...info, readyState, viewport: s.page.viewport() };
   }
 
@@ -289,40 +392,55 @@ export class SessionManager {
   }
 
   async shutdown(): Promise<void> {
-    for (const s of this.registry.removeAll()) await this.disposeSession(s);
+    const sessions = this.registry.removeAll();
+    // Tear down in parallel under one budget; anything that outlives it is killed (owned only).
+    await bounded(Promise.allSettled(sessions.map((s) => this.disposeSession(s))).then(() => undefined), 12_000, undefined);
+    for (const s of sessions) {
+      if (!s.ownsBrowser) continue;
+      try {
+        s.browser.process()?.kill("SIGKILL");
+      } catch {
+        // already gone
+      }
+    }
   }
 
   private async disposeSession(s: Session): Promise<void> {
-    // Each teardown step is independently guarded so a failure in one (e.g. context.close()
-    // throwing) never skips the next (e.g. browser.close()) — otherwise a live Chrome process
-    // can be stranded, and a later rmSync on its still-held userDataDir can EBUSY.
+    // Every step is BOUNDED and independently guarded: a hung renderer or an open modal must
+    // never turn "close" into a 3-minute stall — or a Chrome the human has to force-quit.
     try {
-      await s.recorder.stop();
+      s.cleanup?.();
     } catch {
-      // best-effort teardown; never throw during close
+      // best-effort
     }
     this.flowMarks.delete(s.id);
+    this.emulation.delete(s.id);
+    this.locks.delete(s.id);
+    // Free a renderer pinned by a runaway script so the close below isn't queued behind it, and
+    // undo any throttling/offline emulation so an attached (user-owned) tab is left as we found it.
+    await bounded(s.recorder.terminateExecution(), 1500, undefined);
+    await bounded(resetEmulation(s.page), 2000, undefined);
+    // Don't await CDPSession.detach() here: on a wedged renderer each detach can stall for the
+    // whole protocol timeout, and the browser close/disconnect below tears every session down anyway.
+    s.recorder.abandon();
     const interceptor = this.interceptors.get(s.id);
     this.interceptors.delete(s.id);
-    if (interceptor) {
-      try {
-        await interceptor.disable();
-      } catch {
-        // best-effort teardown; never throw during close
+    interceptor?.abandon();
+    if (s.incognito && s.ownsBrowser) await bounded(s.context.close(), 3000, undefined);
+    if (s.ownsBrowser) {
+      const closed = await bounded(s.browser.close().then(() => true), 6000, false);
+      if (!closed) {
+        // Chrome did not go away on request (hung renderer, modal, beforeunload…). We launched
+        // it, so it is ours to kill — this also releases the profile's SingletonLock.
+        try {
+          s.browser.process()?.kill("SIGKILL");
+        } catch {
+          // already gone
+        }
+        await sleep(200);
       }
-    }
-    if (s.incognito && s.ownsBrowser) {
-      try {
-        await s.context.close();
-      } catch {
-        // best-effort teardown; never throw during close
-      }
-    }
-    try {
-      if (s.ownsBrowser) await s.browser.close();
-      else await s.browser.disconnect();
-    } catch {
-      // best-effort teardown; never throw during close
+    } else {
+      await bounded(Promise.resolve(s.browser.disconnect()), 3000, undefined);
     }
     if (s.tempDir) {
       try {
@@ -335,11 +453,7 @@ export class SessionManager {
 
   private async toInfo(s: Session): Promise<SessionInfo> {
     let title: string | null = null;
-    try {
-      title = await s.page.title();
-    } catch {
-      title = null;
-    }
+    title = await bounded(s.page.title(), 3000, null);
     return {
       sessionId: s.id,
       mode: s.mode,

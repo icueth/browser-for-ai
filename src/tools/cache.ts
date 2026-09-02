@@ -18,13 +18,16 @@ export function registerCacheTools(server: McpServer, mgr: SessionManager): void
     "browser_clear_cache",
     {
       description:
-        "Clear browser cache, cookies, and storage (localStorage/sessionStorage/IndexedDB/etc) for a session. Use before a test run that must start from a clean state.",
+        "Clear browsing state before a run that must start clean. scope \"origin\" clears the current origin's storage " +
+        "(cookies, local/sessionStorage, IndexedDB, CacheStorage, service workers). scope \"all\" ALSO wipes the profile-wide " +
+        "HTTP cache and ALL cookies — the default for a fresh (throwaway) session, but in attach mode that is the user's real " +
+        "profile, so there the default is \"origin\" and \"all\" must be asked for explicitly. Every step is time-bounded.",
       inputSchema: {
         sessionId: z.string().optional(),
         scope: z
           .enum(["all", "origin"])
           .optional()
-          .describe('"all" (default) clears cache+cookies and the current origin\'s storage; "origin" scopes storage clearing explicitly to the current page origin'),
+          .describe('default: "all" for fresh sessions, "origin" for attach sessions'),
       },
     },
     async ({ sessionId, scope }) =>
@@ -32,8 +35,13 @@ export function registerCacheTools(server: McpServer, mgr: SessionManager): void
         const recorder = mgr.recorderFor(sessionId);
         const page = mgr.pageFor(sessionId);
         const origin = safeOrigin(page);
-        await recorder.clearCache(scope === "origin" ? origin : undefined);
-        return ok(`cleared cache+cookies+storage for ${origin}`);
+        const profileWide = scope ? scope === "all" : mgr.modeOf(sessionId) === "fresh";
+        await recorder.clearCache(origin, profileWide);
+        return ok(
+          profileWide
+            ? `cleared profile-wide cache+cookies, and all storage for ${origin}`
+            : `cleared cookies+storage for ${origin} (origin-scoped; pass scope:"all" for the whole profile)`,
+        );
       }),
   );
 
@@ -41,7 +49,7 @@ export function registerCacheTools(server: McpServer, mgr: SessionManager): void
     "browser_hard_reload",
     {
       description:
-        "Reload the page bypassing cache (like a hard refresh / Cmd+Shift+R). Reports the reloaded page's url and title.",
+        "Reload the page bypassing cache (like a hard refresh / Cmd+Shift+R). A beforeunload prompt is accepted so the reload really happens. Reports the reloaded page's url and title.",
       inputSchema: { sessionId: z.string().optional() },
     },
     async ({ sessionId }) =>
