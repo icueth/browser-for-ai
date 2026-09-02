@@ -31,7 +31,13 @@ export interface CssCapture {
   cssHeight: number;
   /** image px per CSS px — 1 when normalized (the goal), dpr when fullRes */
   scale: number;
+  /** page scroll at capture time (CSS px) — turns a document-relative point into a viewport coord */
+  scrollX: number;
+  scrollY: number;
 }
+
+/** What a capture's pixels are relative to — decides how the mapping note is phrased. */
+export type CaptureKind = "viewport" | "element" | "fullPage";
 
 const fmt = (n: number): string => String(Math.round(n * 100) / 100);
 
@@ -47,7 +53,8 @@ const fmt = (n: number): string => String(Math.round(n * 100) / 100);
  * Coordinate contract (verified empirically against puppeteer): its `clip` is DOCUMENT-relative.
  * So the "current viewport" is {scrollX, scrollY, w, h} — NOT {0,0,w,h}, which on a scrolled page
  * captures the document top (or throws "0 height") — and a viewport-relative `region` must be
- * offset by the current scroll before use. fullPage captures the whole document from its origin.
+ * offset by the current scroll before use. fullPage captures the whole document from its origin,
+ * so ITS pixels are document-relative (see mappingNote).
  */
 export async function captureCss(
   page: Page,
@@ -67,6 +74,7 @@ export async function captureCss(
       ? { x: 0, y: 0, width: m.w, height: m.docH }
       : { x: m.sx, y: m.sy, width: m.w, height: m.h };
   if (region.width < 1 || region.height < 1) throw new Error("nothing visible to capture (empty region)");
+
   // captureBeyondViewport MUST stay true: with false, puppeteer intersects the clip with the viewport and
   // rebuilds the rect WITHOUT `scale`, silently dropping the 1/dpr normalization (observed: 1600px, not 800).
   // With true, a viewport-sized or element clip renders identically to a plain/element screenshot (verified).
@@ -91,14 +99,33 @@ export async function captureCss(
     cssWidth: Math.round(region.width),
     cssHeight: Math.round(region.height),
     scale: size.width / region.width,
+    scrollX: m.sx,
+    scrollY: m.sy,
   };
 }
 
-/** Human line that tells the model exactly how image pixels map to click coordinates. */
-export function mappingNote(cap: CssCapture): string {
-  return cap.scale > 0.99 && cap.scale < 1.01
-    ? `image ${cap.width}×${cap.height}px = css ${cap.cssWidth}×${cap.cssHeight} (1:1 — a point in this image IS the page_click_at {x,y})`
-    : `image ${cap.width}×${cap.height}px = css ${cap.cssWidth}×${cap.cssHeight} (scale ${fmt(cap.scale)} — divide image coords by ${fmt(cap.scale)} for page_click_at)`;
+/** Human line that tells the model exactly how image pixels map to click coordinates — phrased per
+ *  what the pixels are relative to. Only a VIEWPORT capture is directly clickable: page_click_at takes
+ *  viewport coords, so a fullPage image (document-relative) must be converted through scrollY, and an
+ *  element crop through the element's origin. */
+export function mappingNote(cap: CssCapture, kind: CaptureKind = "viewport"): string {
+  const dims = `image ${cap.width}×${cap.height}px = css ${cap.cssWidth}×${cap.cssHeight}`;
+  const oneToOne = cap.scale > 0.99 && cap.scale < 1.01;
+  const s = fmt(cap.scale);
+  const unscale = oneToOne ? "" : ` (image is scale ${s}: divide image coords by ${s} first)`;
+  if (kind === "fullPage") {
+    return (
+      `${dims} — DOCUMENT-relative, NOT a click coordinate${unscale}. page_click_at takes VIEWPORT coords: ` +
+      `x = image_x${oneToOne ? "" : "/" + s}, y = image_y${oneToOne ? "" : "/" + s} − scrollY (scrollY is ${cap.scrollY} now); ` +
+      `if that point is outside the current viewport, page_scroll to it first — or use page_look / page_find to click by ref instead`
+    );
+  }
+  if (kind === "element") {
+    return `${dims} — relative to the element crop${unscale}; see the origin note for the page coordinate`;
+  }
+  return oneToOne
+    ? `${dims} (1:1 — a point in this image IS the page_click_at {x,y})`
+    : `${dims} (scale ${s} — divide image coords by ${s} for page_click_at)`;
 }
 
 /** Registers page_screenshot. Its success result carries image content, which `ToolResult`
@@ -109,12 +136,13 @@ export function registerScreenshotTools(server: McpServer, mgr: SessionManager):
     "page_screenshot",
     {
       description:
-        "Capture a PNG screenshot that is 1:1 with CSS pixels — the same coordinate space as " +
-        "page_click_at / page_tap_at / page_drag — so a point you read off the image can be clicked directly " +
-        "(a text line states the mapping). Current viewport by default; fullPage:true for the full scrollable page; " +
-        "or a single element by ref/selector (the text line gives the element's page offset). fullRes:true returns " +
-        "native device pixels (2x on Retina) when you need fine detail. To see numbered click targets on the " +
-        "image, use page_look instead. Use sparingly — image content is expensive.",
+        "Capture a PNG screenshot that is 1:1 with CSS pixels. The default (current viewport) shares the exact " +
+        "coordinate space of page_click_at / page_tap_at / page_drag, so a point you read off the image can be " +
+        "clicked directly — a text line states the mapping. fullPage:true captures the whole scrollable page " +
+        "(document-relative: the note explains the scrollY conversion; prefer page_look/page_find to click). A single " +
+        "element by ref/selector gets a crop plus its page origin. fullRes:true returns native device pixels (2x on " +
+        "Retina) for fine detail. To see numbered click targets on the image, use page_look. Use sparingly — image " +
+        "content is expensive.",
       inputSchema: {
         ...targetFields,
         sessionId: z.string().optional(),
@@ -137,12 +165,13 @@ export function registerScreenshotTools(server: McpServer, mgr: SessionManager):
           const ox = Math.round(box.x);
           const oy = Math.round(box.y);
           const note =
-            `element ${mappingNote(cap)}; element origin at page (${ox}, ${oy}) → ` +
+            `element ${mappingNote(cap, "element")}; element origin at page (${ox}, ${oy}) → ` +
             `page_click_at x = ${ox} + ix/${fmt(cap.scale)}, y = ${oy} + iy/${fmt(cap.scale)}`;
           return { content: [{ type: "image", data: cap.data, mimeType: "image/png" }, { type: "text", text: note }] };
         }
         const cap = await captureCss(page, { fullPage: !!fullPage, fullRes: !!fullRes });
-        return { content: [{ type: "image", data: cap.data, mimeType: "image/png" }, { type: "text", text: mappingNote(cap) }] };
+        const note = mappingNote(cap, fullPage ? "fullPage" : "viewport");
+        return { content: [{ type: "image", data: cap.data, mimeType: "image/png" }, { type: "text", text: note }] };
       } catch (err) {
         return fail(`error: ${err instanceof Error ? err.message : String(err)}`);
       }

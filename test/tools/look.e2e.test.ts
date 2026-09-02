@@ -67,6 +67,16 @@ describe.skipIf(!chromeAvailable)("vision: page_screenshot 1:1 + page_look (Set-
     expect(textOf(res)).toContain("scale 2");
   });
 
+  it("page_screenshot fullPage is document-relative and says so (never 'IS the click coord')", async () => {
+    const res = await client.callTool({ name: "page_screenshot", arguments: { fullPage: true } });
+    expect(res.isError).toBeFalsy();
+    const note = textOf(res);
+    expect(note).toContain("DOCUMENT-relative");
+    expect(note).toContain("scrollY");
+    expect(note).not.toContain("IS the page_click_at");
+    expect(pngSize(imageOf(res)!.data!).width).toBe(VW);
+  });
+
   it("page_screenshot of one element is 1:1 and reports the element's page offset", async () => {
     const res = await client.callTool({ name: "page_screenshot", arguments: { selector: "#submit" } });
     expect(res.isError).toBeFalsy();
