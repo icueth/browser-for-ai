@@ -12,7 +12,7 @@ export function registerMouseTools(server: McpServer, mgr: SessionManager): void
     "page_click_at",
     {
       description:
-        "Click at a raw viewport coordinate (no DOM target needed — for canvas/WebGL surfaces) and report the network/console/url delta it caused.",
+        "Click at a raw viewport coordinate in CSS px — the SAME space as page_screenshot / page_look images (1 image px = 1 css px), so a point read off those images can be clicked directly. No DOM target needed (canvas/WebGL). Reports the network/console/url delta it caused.",
       inputSchema: {
         x: z.number(),
         y: z.number(),
@@ -37,7 +37,7 @@ export function registerMouseTools(server: McpServer, mgr: SessionManager): void
     "page_tap_at",
     {
       description:
-        "Touch-TAP at a raw viewport coordinate (dispatches touchstart→touchend, for canvas/WebGL games that listen for touch rather than mouse) and report the network/console/url delta it caused. Requires the session viewport to have hasTouch:true (set it via browser_launch {viewport:{...,hasTouch:true}} or page_set_viewport). If a game ignores page_click_at, try this.",
+        "Touch-TAP at a raw viewport coordinate in CSS px (same space as page_screenshot/page_look images; dispatches touchstart→touchend, for canvas/WebGL games that listen for touch rather than mouse) and report the network/console/url delta it caused. Requires the session viewport to have hasTouch:true (set it via browser_launch {viewport:{...,hasTouch:true}} or page_set_viewport). If a game ignores page_click_at, try this.",
       inputSchema: {
         x: z.number(),
         y: z.number(),
@@ -60,7 +60,7 @@ export function registerMouseTools(server: McpServer, mgr: SessionManager): void
     "page_drag",
     {
       description:
-        "Drag the mouse from one raw viewport coordinate to another (mousedown → move → mouseup, no DOM target needed) and report the network/console/url delta it caused.",
+        "Drag the mouse from one raw viewport coordinate to another, in CSS px (same space as page_screenshot/page_look images; mousedown → move → mouseup, no DOM target needed) and report the network/console/url delta it caused.",
       inputSchema: {
         fromX: z.number(),
         fromY: z.number(),

@@ -4,7 +4,7 @@
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)
 ![MCP](https://img.shields.io/badge/MCP-server-8A2BE2.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6.svg)
-![Tools](https://img.shields.io/badge/tools-46-0a8fa6.svg)
+![Tools](https://img.shields.io/badge/tools-47-0a8fa6.svg)
 
 [English](README.md) · **ภาษาไทย**
 
@@ -26,8 +26,10 @@
   binary base64), **header ครบตามที่ส่งจริงบนสาย** (รวม `Cookie` และ custom signing
   header, merge จาก CDP ExtraInfo), timing, redirect, และเฟรม WebSocket — เรียกดูได้ตรง
   คำถาม: `failures`, `pending` (ค้าง), `slow`
-- **🎮 ขับได้ทุกอย่าง** — ทั้ง ref/CSS และ **พิกัด + สัมผัส** สำหรับ `<canvas>` / WebGL
-  ที่ไม่มี DOM ให้จับ ทุก action รายงาน **delta** (network/console/URL) ที่เกิดขึ้น
+- **🎮 ขับได้ทุกอย่าง — ด้วย ref, ด้วยสายตา, หรือด้วยพิกัด** — ref/CSS, **พิกัด + สัมผัส** สำหรับ
+  `<canvas>` / WebGL, และ **เห็นแล้วคลิก**: `page_look` คืน screenshot ที่มีเลขกำกับบนทุก element
+  ที่กดได้ (Set-of-Mark) ขนาด 1:1 กับ CSS px → model ดูภาพ เลือกเลข แล้วคลิก ไม่ต้องคำนวณพิกัด
+  ไม่คลิกพลาด ทุก action รายงาน **delta** (network/console/URL) ที่เกิดขึ้น
 - **🧪 ปั้น traffic ได้** — block / mock / แก้ request และ **throttle** เป็น Slow 3G /
   offline / bandwidth กำหนดเอง พร้อมหน่วง CPU
 - **🗂️ session จริง** — หลาย session พร้อมกัน, incognito, **attach เข้า Chrome ที่
@@ -141,7 +143,7 @@ browser_close { "all": true }
 
 ---
 
-## รายการ tools ทั้งหมด (46)
+## รายการ tools ทั้งหมด (47)
 
 ### Session & lifecycle
 | tool | หน้าที่ |
@@ -163,6 +165,7 @@ browser_close { "all": true }
 | `page_snapshot` | DOM แบบย่อ + ติด **ref** ทุก element |
 | `page_find` | หา element ด้วย text / ARIA role / CSS → คืน ref (เจาะจงกว่า snapshot) |
 | `page_read` | อ่าน/ค้น **ข้อความเนื้อหา** ในหน้า (เลือก selector + query ได้) |
+| `page_look` | **เห็นแล้วคลิก**: screenshot 1:1 ที่มีเลขกำกับบนทุก element ที่กดได้ + legend → `page_click {ref}` |
 | `page_observe` | delta ตั้งแต่ครั้งก่อน (console/network/URL/DOM) |
 | `page_screenshot` | PNG ของ viewport / เต็มหน้า / element เดียว |
 | `page_eval` | รัน JS ในหน้า แล้วคืนค่า |
@@ -324,6 +327,18 @@ page_snapshot
 page_upload { "selector": "input[type=file]", "files": ["/abs/path/resume.pdf"] }
 page_click { "selector": "#submit" }
 net_get { "url": "/upload" }                  // ยืนยัน request multipart
+```
+
+### G. เห็นแล้วคลิก (vision mode)
+
+```jsonc
+page_look                                    // screenshot ที่มีเลข 1,2,3… บนทุก element ที่กดได้ + legend
+// legend: [e7] button "ชำระเงิน" — ดูภาพ เลือกเลข แล้วคลิก ref นั้น:
+page_click { "ref": "e7" }
+
+page_look { "text": "สมัคร" }                // ใส่เลขเฉพาะ element ที่ข้อความตรง
+page_screenshot                              // ภาพ 1:1 — จุด (x,y) ที่อ่านจากภาพคือพิกัดคลิกได้เลย
+page_click_at { "x": 640, "y": 412 }
 ```
 
 ---

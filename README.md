@@ -4,7 +4,7 @@
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)
 ![MCP](https://img.shields.io/badge/MCP-server-8A2BE2.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6.svg)
-![Tools](https://img.shields.io/badge/tools-46-0a8fa6.svg)
+![Tools](https://img.shields.io/badge/tools-47-0a8fa6.svg)
 
 **English** · [ภาษาไทย](README.th.md)
 
@@ -28,9 +28,11 @@ The things a screenshot-only browser tool can't do:
   base64), the **complete on-the-wire headers** (`Cookie` and custom signing headers
   included, merged from CDP ExtraInfo), timing, redirect hops, and WebSocket frames —
   surfaced by the exact question you're asking: `failures`, `pending` (hangs), `slow`.
-- **🎮 Drive anything.** Ref / CSS interaction *and* raw **coordinate + touch**
-  for `<canvas>` / WebGL surfaces with no DOM. Every action reports the
-  network / console / URL **delta** it caused.
+- **🎮 Drive anything — by ref, by sight, or by pixel.** Ref / CSS interaction, raw
+  **coordinate + touch** for `<canvas>` / WebGL, and **see-then-click**: `page_look` returns a
+  screenshot with a numbered badge on every clickable element (Set-of-Mark), 1:1 with CSS px,
+  so the model reads the picture and clicks by number — no coordinate math, no misclicks.
+  Every action reports the network / console / URL **delta** it caused.
 - **🧪 Shape traffic.** Block / mock / modify requests, and **throttle** to
   Slow 3G / offline / custom bandwidth with CPU slowdown.
 - **🗂️ Real sessions.** Many concurrent sessions, incognito, **attach to your
@@ -145,7 +147,7 @@ the active session.
 
 ---
 
-## Tool reference (46)
+## Tool reference (47)
 
 ### Sessions & lifecycle
 | tool | purpose |
@@ -167,6 +169,7 @@ the active session.
 | `page_snapshot` | compact, ref-annotated DOM (source of element **refs**) |
 | `page_find` | find element(s) by text / ARIA role / CSS → refs (targeted vs snapshot) |
 | `page_read` | read/search the page's **text content** (optionally by selector + query) |
+| `page_look` | **see-then-click**: 1:1 screenshot with numbered badges on every clickable element + legend → `page_click {ref}` |
 | `page_observe` | delta since last observe — new console/network/URL/DOM |
 | `page_screenshot` | PNG of viewport, full page, or one element |
 | `page_eval` | evaluate JS in the page, return the value |
@@ -330,6 +333,18 @@ page_snapshot
 page_upload { "selector": "input[type=file]", "files": ["/abs/path/resume.pdf"] }
 page_click { "selector": "#submit" }
 net_get { "url": "/upload" }                  // confirm the multipart request
+```
+
+### G. See it, then click it (vision mode)
+
+```jsonc
+page_look                                    // screenshot with badges 1,2,3… on every clickable element + legend
+// legend: [e7] button "ชำระเงิน" — read the picture, pick the badge, click the ref:
+page_click { "ref": "e7" }
+
+page_look { "text": "สมัคร" }                // badge only the elements whose text matches
+page_screenshot                              // plain 1:1 image; any point (x,y) you read IS the click coord
+page_click_at { "x": 640, "y": 412 }
 ```
 
 ---
