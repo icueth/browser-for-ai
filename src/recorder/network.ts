@@ -32,6 +32,13 @@ function mergeHeaders(base: Record<string, string>, extra: Record<string, string
   return out;
 }
 
+// Ring bounds: a long attach session (hours of browsing, media streams, chatty WebSockets) must
+// not grow the MCP server — or the Chrome bodies it pins — without limit. Oldest entries go first.
+const MAX_ENTRIES = 3000;
+const MAX_WS = 200;
+const MAX_WS_FRAMES = 500;
+const MAX_WS_PAYLOAD = 4096;
+
 export class NetworkBuffer {
   private entries = new Map<string, NetEntry>();
   private order: string[] = [];
@@ -61,13 +68,17 @@ export class NetworkBuffer {
       finished: false, failed: false, initiatorType: e.initiator?.type,
       ...(redirects.length > 0 ? { redirects } : {}),
     });
-    if (!this.order.includes(e.requestId)) this.order.push(e.requestId);
+    if (!existing) this.order.push(e.requestId);
     // Drain any ExtraInfo that raced ahead of this request.
     const extra = this.pendingReqExtra.get(e.requestId);
     if (extra) {
       this.pendingReqExtra.delete(e.requestId);
       const n = this.entries.get(e.requestId)!;
       n.requestHeaders = mergeHeaders(n.requestHeaders, extra);
+    }
+    while (this.order.length > MAX_ENTRIES) {
+      const oldest = this.order.shift();
+      if (oldest !== undefined) this.entries.delete(oldest);
     }
   }
 
@@ -135,13 +146,20 @@ export class NetworkBuffer {
     this.seqMax = Math.max(this.seqMax, seq);
     this.ws.set(e.requestId, { id: e.requestId, seq, url: e.url, frames: [], closed: false });
     this.wsOrder.push(e.requestId);
+    while (this.wsOrder.length > MAX_WS) {
+      const oldest = this.wsOrder.shift();
+      if (oldest !== undefined) this.ws.delete(oldest);
+    }
   }
 
   webSocketFrame(seq: number, dir: "sent" | "recv", e: WsFrameEvt): void {
     this.seqMax = Math.max(this.seqMax, seq);
     const w = this.ws.get(e.requestId); if (!w) return;
-    const f: WsFrame = { seq, dir, opcode: e.response.opcode, payload: e.response.payloadData, ts: seq };
+    const raw = e.response.payloadData ?? "";
+    const payload = raw.length > MAX_WS_PAYLOAD ? `${raw.slice(0, MAX_WS_PAYLOAD)}…(+${raw.length - MAX_WS_PAYLOAD} chars)` : raw;
+    const f: WsFrame = { seq, dir, opcode: e.response.opcode, payload, ts: seq };
     w.frames.push(f);
+    if (w.frames.length > MAX_WS_FRAMES) w.frames.splice(0, w.frames.length - MAX_WS_FRAMES);
   }
 
   webSocketClosed(e: { requestId: string }): void {

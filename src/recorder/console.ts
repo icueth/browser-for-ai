@@ -6,6 +6,8 @@ type ExceptionEvt = { exceptionDetails: { text?: string; exception?: { descripti
 type LogEvt = { entry: { source?: string; level?: string; text?: string; url?: string; lineNumber?: number } };
 
 const ERROR_LEVELS = new Set(["error", "warning", "warn"]);
+/** Ring bound: a chatty page over a long attach session must not grow the server without limit. */
+const MAX_CONSOLE = 2000;
 
 function argText(a: ArgV): string {
   if (a.value !== undefined) return typeof a.value === "string" ? a.value : JSON.stringify(a.value);
@@ -24,6 +26,10 @@ export class ConsoleBuffer {
     if (existing) { existing.count++; existing.seq = seq; return; }
     const entry: ConsoleEntry = { seq, level, text, count: 1, source: "console", ...extra };
     this.byKey.set(key, entry); this.entries.push(entry);
+    if (this.entries.length > MAX_CONSOLE) {
+      const dropped = this.entries.shift()!;
+      this.byKey.delete(`${dropped.level}|${dropped.text}`);
+    }
   }
 
   consoleAPICalled(seq: number, e: ConsoleEvt): void {
