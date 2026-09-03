@@ -399,9 +399,9 @@ browser_launch { "mode": "fresh", "incognito": true, "url": "…",
 page_set_viewport { "width": 390, "height": 844 }   // บน session ที่เปิดอยู่
 ```
 
-คง `hasTouch:false` (ค่าเริ่มต้น) เพื่อให้ `page_click_at` (คลิก **เมาส์** จริง) ขับเกมที่
-ฟังเมาส์ ส่วนเกมที่ฟัง **touch** อย่างเดียว ให้ตั้ง viewport `hasTouch:true` แล้วใช้
-`page_tap_at { x, y }`
+`device:"mobile"` เปิด touch ให้เลย จึงใช้ `page_tap_at` และ `page_batch {action:"tap_at"}`
+ขับเกม Cocos/canvas ได้ทันที (คลิกเมาส์ก็ยังทำงาน) ถ้าใช้ `viewport` เองแทน `hasTouch` เป็น false
+โดยดีฟอลต์ ให้ตั้ง `hasTouch:true` เองถ้าต้องใช้ `page_tap_at`
 
 ---
 
