@@ -12,22 +12,52 @@ import type { LaunchOptions, Session, SessionId, SessionInfo } from "../types";
 /** Prefix of the ephemeral user-data dirs we create under $TMPDIR. */
 const TEMP_PREFIX = "bfa-";
 
-/** Apply an optional launch-time viewport. No-op when not requested (keeps puppeteer's
- *  800x600 default). isMobile/hasTouch default to false so plain mouse clicks
- *  (page.mouse.click / page_click_at) drive canvas games that listen for mouse input;
- *  set hasTouch:true only for games that require touch. */
+/** Device presets. A preset pins a device-metrics override (a fixed viewport), which — unlike the
+ *  defaultViewport:null "track the window" mode — does NOT resize itself when the OS window changes,
+ *  the usual cause of "it opened full then shrank and now my clicks miss". `mobile` also serves a
+ *  phone layout + UA. hasTouch stays false so page.mouse.click / page_click_at keep driving games
+ *  that listen for mouse input; use page_tap_at for touch-only games. */
+const MOBILE_UA =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+export const DEVICE_PRESETS: Record<
+  NonNullable<LaunchOptions["device"]>,
+  { width: number; height: number; deviceScaleFactor: number; mobile: boolean; hasTouch: boolean; userAgent?: string }
+> = {
+  mobile: { width: 390, height: 844, deviceScaleFactor: 3, mobile: true, hasTouch: false, userAgent: MOBILE_UA },
+  desktop: { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false, hasTouch: false },
+};
+
+/** Resolve the launch viewport: an explicit `viewport` wins over a `device` preset; neither → null
+ *  (keep puppeteer's defaultViewport:null window-tracking behaviour). */
+function resolveLaunchViewport(
+  opts: LaunchOptions,
+): { width: number; height: number; deviceScaleFactor: number; mobile: boolean; hasTouch: boolean; userAgent?: string } | null {
+  if (opts.viewport)
+    return {
+      width: opts.viewport.width,
+      height: opts.viewport.height,
+      deviceScaleFactor: opts.viewport.deviceScaleFactor ?? 1,
+      mobile: opts.viewport.mobile ?? false,
+      hasTouch: opts.viewport.hasTouch ?? false,
+    };
+  if (opts.device) return DEVICE_PRESETS[opts.device];
+  return null;
+}
+
+/** Apply an optional launch-time viewport / device preset. No-op when neither is requested (keeps
+ *  puppeteer's window-tracking default). (A stale override left by a DIFFERENT still-connected CDP
+ *  client can't be cleared from here — it is per-session and only clears when that client
+ *  disconnects; that's why a leftover old session can keep a page clamped.) */
 async function applyViewport(page: Page, opts: LaunchOptions): Promise<void> {
-  // No explicit viewport → do nothing: with defaultViewport:null (see launch/connect) puppeteer
-  // sets no device-metrics override, so the page tracks the real window. (A stale override left by
-  // a DIFFERENT still-connected CDP client can't be cleared from here — it is per-session and only
-  // clears when that client disconnects; that's why a leftover old session keeps a page clamped.)
-  if (!opts.viewport) return;
+  const v = resolveLaunchViewport(opts);
+  if (!v) return;
+  if (v.userAgent) await page.setUserAgent(v.userAgent).catch(() => {});
   await page.setViewport({
-    width: opts.viewport.width,
-    height: opts.viewport.height,
-    deviceScaleFactor: opts.viewport.deviceScaleFactor ?? 1,
-    isMobile: opts.viewport.mobile ?? false,
-    hasTouch: opts.viewport.hasTouch ?? false,
+    width: v.width,
+    height: v.height,
+    deviceScaleFactor: v.deviceScaleFactor,
+    isMobile: v.mobile,
+    hasTouch: v.hasTouch,
   });
 }
 
@@ -132,7 +162,12 @@ export class SessionManager {
       const context: BrowserContext = opts.incognito
         ? await browser.createBrowserContext()
         : browser.defaultBrowserContext();
-      const page: Page = await context.newPage();
+      // Reuse Chrome's initial tab instead of opening a second one on top of it: otherwise the
+      // browser's own about:blank sits at tab 0 and the page we drive is tab 1, so browser_tabs
+      // shows a phantom blank and browser_use_tab {index:0} lands on nothing. (Incognito contexts
+      // start with no page, so there we do create one.)
+      const existing = opts.incognito ? [] : await context.pages();
+      const page: Page = existing[0] ?? (await context.newPage());
       await applyViewport(page, opts);
       installDialogGuard(page);
       // We own this browser: guard dialogs in popups / new tabs the page opens as well, so an
@@ -169,6 +204,7 @@ export class SessionManager {
         tempDir,
         cleanup,
       });
+      this.followPopups(session);
       return await this.toInfo(session);
     } catch (err) {
       try {
@@ -329,6 +365,7 @@ export class SessionManager {
    *  overlapping calls can't remove each other's overlay or re-number refs mid-capture. */
   async withPageLock<T>(id: SessionId | undefined, fn: () => Promise<T>): Promise<T> {
     const s = this.require(id);
+    await this.ensureLivePage(s);
     const prev = this.locks.get(s.id) ?? Promise.resolve();
     let release: () => void = () => {};
     const gate = new Promise<void>((r) => {
@@ -379,11 +416,98 @@ export class SessionManager {
     return this.registry.list().length;
   }
 
+  /** Auto-follow tabs the driven page opens (fresh mode only — we never re-point at a tab in the
+   *  user's real Chrome). A site that opens the game in a new window would otherwise leave every
+   *  later tool driving the now-blank opener: "opened bfa and it just stalled". */
+  private followPopups(s: Session): void {
+    if (!s.ownsBrowser) return;
+    s.page.on("popup", (p) => {
+      if (p) void this.rebindSession(s, p);
+    });
+  }
+
+  /** Repoint a session at a different live page, carrying the recorder buffers and intercept rules. */
+  private async rebindSession(s: Session, page: Page): Promise<void> {
+    s.page = page;
+    this.followPopups(s);
+    await s.recorder.rebind(page);
+    s.recorder.markSwitch(page.url());
+    const interceptor = this.interceptors.get(s.id);
+    if (interceptor) await interceptor.rebind(page).catch(() => {});
+  }
+
+  /** A tab we can actually drive: open and not sitting on a chrome-error page (what a closed/killed
+   *  tab or a failed nav leaves behind). */
+  private isUsable(p: Page): boolean {
+    try {
+      return !p.isClosed() && !p.url().startsWith("chrome-error");
+    } catch {
+      return false;
+    }
+  }
+
+  /** Repoint the session at another usable tab, preferring one that ISN'T the current (dead) page.
+   *  Returns false when nothing usable is left. */
+  private async healToAnotherTab(s: Session, avoidCurrent = false): Promise<boolean> {
+    const pages = s.mode === "attach" ? await s.browser.pages() : await s.context.pages();
+    const candidates = [...pages].reverse().filter((p) => this.isUsable(p) && (!avoidCurrent || p !== s.page));
+    const live = candidates[0];
+    if (!live) return false;
+    await this.rebindSession(s, live);
+    return true;
+  }
+
+  /** If the session's driven tab was closed (by the user or the site) or died into a chrome-error
+   *  page, repoint at another live tab instead of letting every tool throw "detached Frame" /
+   *  "Target closed" until the human relaunches. Throws only when no usable tab is left. */
+  private async ensureLivePage(s: Session): Promise<void> {
+    if (this.isUsable(s.page)) return;
+    if (!(await this.healToAnotherTab(s))) {
+      throw new Error(`Session "${s.id}" has no open tab left. Call browser_launch for a new one (or browser_close ${s.id}).`);
+    }
+  }
+
+  /** Page for a session, healed if its tab was closed. Interaction tools route through here. */
+  async livePageFor(id?: SessionId): Promise<Page> {
+    const s = this.require(id);
+    await this.ensureLivePage(s);
+    return s.page;
+  }
+
+  /** Switch the driven tab to `index` (from browser_tabs), carrying recorder + intercept state. */
+  async useTab(index: number, id?: SessionId): Promise<SessionInfo> {
+    const s = this.require(id);
+    const pages = s.mode === "attach" ? await s.browser.pages() : await s.context.pages();
+    const page = pages[index];
+    if (!page || page.isClosed()) {
+      throw new Error(`Tab ${index} is not open. Call browser_tabs to list the current tabs.`);
+    }
+    await this.rebindSession(s, page);
+    await page.bringToFront().catch(() => {});
+    return this.toInfo(s);
+  }
+
   async goto(url: string, id?: SessionId): Promise<SessionInfo> {
     const s = this.require(id);
+    await this.ensureLivePage(s);
     // A navigation is an action: net_wait / page_wait_for measure "since your last action" from here.
     s.recorder.lastActionMark = s.recorder.seqNow();
-    await s.page.goto(url, { waitUntil: "load" });
+    try {
+      await s.page.goto(url, { waitUntil: "load" });
+    } catch (err) {
+      // The tab may have been torn down between the liveness check and goto (a close mid-flight, a
+      // frame detach). Heal to a DIFFERENT live tab and retry once rather than surfacing "detached
+      // Frame". Re-throw a genuine navigation failure (bad URL, unreachable host) unchanged.
+      if (isTransportError(err) && (await this.healToAnotherTab(s, true))) {
+        await s.page.goto(url, { waitUntil: "load" });
+      } else {
+        throw err;
+      }
+    }
+    // A tab that died mid-navigation leaves us on chrome-error without throwing: heal + retry once.
+    if (!this.isUsable(s.page) && (await this.healToAnotherTab(s, true))) {
+      await s.page.goto(url, { waitUntil: "load" });
+    }
     return this.toInfo(s);
   }
 
@@ -391,6 +515,7 @@ export class SessionManager {
     id?: SessionId,
   ): Promise<SessionInfo & { readyState: string; viewport: { width: number; height: number } | null }> {
     const s = this.require(id);
+    await this.ensureLivePage(s);
     const info = await this.toInfo(s);
     const readyState = await bounded(s.page.evaluate(() => document.readyState), 3000, "unknown");
     return { ...info, readyState, viewport: s.page.viewport() };
@@ -548,6 +673,14 @@ function profileInUse(profileDir: string): boolean {
     // ESRCH = no such process (stale lock); EPERM = alive but owned by someone else.
     return (err as NodeJS.ErrnoException).code === "EPERM";
   }
+}
+
+/** True for errors that mean "the tab/CDP connection went away" — worth a heal-and-retry, unlike
+ *  a genuine navigation failure (bad URL, net::ERR_*) which must surface. */
+function isTransportError(err: unknown): boolean {
+  return /detached|Target closed|Session closed|Execution context was destroyed|Protocol error/i.test(
+    err instanceof Error ? err.message : String(err),
+  );
 }
 
 function safeUrl(page: Page): string | null {

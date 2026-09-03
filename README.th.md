@@ -4,7 +4,7 @@
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)
 ![MCP](https://img.shields.io/badge/MCP-server-8A2BE2.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6.svg)
-![Tools](https://img.shields.io/badge/tools-50-0a8fa6.svg)
+![Tools](https://img.shields.io/badge/tools-51-0a8fa6.svg)
 
 [English](README.md) · **ภาษาไทย**
 
@@ -34,6 +34,9 @@
   offline / bandwidth กำหนดเอง พร้อมหน่วง CPU
 - **🗂️ session จริง** — หลาย session พร้อมกัน, incognito, **attach เข้า Chrome ที่
   ล็อกอินอยู่**, save/restore cookie + storage, และล้าง cache สมบูรณ์
+- **🎯 ขับ tab ที่ถูกต้อง บน viewport ที่นิ่ง** — session ที่ launch คือตัว active; bfa **auto-follow tab
+  ที่หน้าเปิด** (เกมที่เด้งหน้าต่างใหม่ก็ยังถูกขับต่อ) และ **self-heal** ไป tab ที่ยังเปิดอยู่แทนที่จะ error เมื่อ tab ปิด
+  launch ด้วย `device:"mobile"` เพื่อ viewport มือถือ **390×844 ที่นิ่ง ไม่หด**เอง พิกัด `page_look` / `page_click_at` จึงไม่เพี้ยน
 - **⚡ เร็ว และไม่มีวันค้าง** — `page_batch` ทำทั้งลำดับในรอบเดียวและปิดท้ายด้วย look ได้;
   ทุก action รอแค่จน "นิ่ง" ไม่ใช่ sleep ตายตัว; `page_wait_for` / `net_wait` คืนทันทีที่เงื่อนไขจริง
   ทุกคำสั่งมีเพดานเวลา: สคริปต์วนลูปถูกหยุด (`page_eval` มี budget, `browser_recover`),
@@ -141,14 +144,19 @@ browser_close { "all": true }
 - **Profile** — ไม่ใส่ `profile` → profile ชั่วคราวในโฟลเดอร์ temp ลบเมื่อปิด ใส่ชื่อ
   `{ "profile": "work" }` → เก็บถาวรที่ `~/.bfa/profiles/work` ทำให้ login อยู่ข้ามครั้ง
   (สอง session บน profile ชื่อเดียวกันชนกัน; แบบไม่ตั้งชื่อปลอดภัยเสมอ)
-- **Viewport** ตอน launch หรือ `page_set_viewport` บน session ที่เปิดอยู่
+- **`device: "mobile"`** — viewport มือถือ 390×844 (dpr 3, layout + UA มือถือ) ที่ **ไม่** ตามขนาดหน้าต่าง
+  จึงไม่หดเอง พิกัดคลิกไม่เพี้ยน เหมาะกับเกมมือถือ/PG; `device: "desktop"` = 1280×800 ใส่ `viewport`
+  เองจะทับ preset; ถ้าไม่ใส่ทั้งคู่ หน้าจะตามหน้าต่างจริง (ซึ่งหดได้)
+- **Viewport** ตอน launch หรือ `page_set_viewport { device }` / `{ width, height }` บน session ที่เปิดอยู่
 
-จัดการด้วย `browser_sessions`, `browser_use { sessionId }`, `browser_tabs`,
-`browser_close` — tool ส่วนใหญ่รับ `sessionId` (ไม่ใส่ = ใช้ session ที่ active อยู่)
+session ที่ launch จะเป็นตัว **active**; launch ตัวใหม่ทำให้ตัวนั้น active fresh mode จะ **auto-follow tab
+ที่หน้าเปิด** และ **self-heal** ไป tab อื่นถ้า tab ที่ขับปิดไป จัดการด้วย `browser_sessions`,
+`browser_use { sessionId }`, `browser_tabs`, `browser_use_tab { index }`, `browser_close` —
+tool ส่วนใหญ่รับ `sessionId` (ไม่ใส่ = ใช้ session ที่ active อยู่)
 
 ---
 
-## รายการ tools ทั้งหมด (50)
+## รายการ tools ทั้งหมด (51)
 
 ### Session & lifecycle
 | tool | หน้าที่ |
@@ -157,6 +165,7 @@ browser_close { "all": true }
 | `browser_sessions` | ดู session ที่เปิดอยู่ |
 | `browser_use` | ตั้ง session เริ่มต้น |
 | `browser_tabs` | ดู tab/target ของ session |
+| `browser_use_tab` | สลับ tab ที่ขับ (ยก recorder + intercept ตามไป; fresh mode auto-follow tab ที่หน้าเปิด) |
 | `browser_close` | ปิด session (หรือ `all`) |
 | `browser_clear_cache` | ล้าง cache + cookie + storage |
 | `browser_hard_reload` | reload ข้าม cache |
@@ -196,13 +205,13 @@ browser_close { "all": true }
 ### Network (อ่านลึก)
 | tool | หน้าที่ |
 |---|---|
-| `net_list` | request ล่าสุด (กรอง url/method/type/status) |
+| `net_list` | request ล่าสุด (กรอง url/method/type/status; `since:"nav"` = เฉพาะหน้านี้) |
 | `net_get` | 1 request เต็ม: header + body ทั้ง req/resp |
 | `net_failures` | 4xx/5xx + transport error พร้อมรายละเอียด |
 | `net_pending` | request ที่ยังค้าง (ตัวการทำหน้าค้าง) |
 | `net_slow` | request ที่ช้ากว่าที่กำหนด |
 | `net_ws` | WebSocket + เฟรมล่าสุด |
-| `net_wait` | รอจน request ที่ match โผล่/จบ |
+| `net_wait` | รอจน request ที่ match โผล่/จบ (เฉพาะ request ตั้งแต่ action ล่าสุด) |
 
 ### ปั้น traffic & emulation
 | tool | หน้าที่ |
@@ -360,6 +369,18 @@ page_batch { "steps": [
 ], "look": true }
 // → delta รวมทั้ง network/console/url + screenshot ติดเลขของหน้า dashboard
 //   เลือก page_click {ref} ถัดไปได้จากคำตอบเดียวกัน หยุดที่ step แรกที่ล้ม
+```
+
+### I. เกมมือถือ / PG (viewport นิ่ง + auto-follow tab)
+
+```jsonc
+browser_launch { "mode": "fresh", "device": "mobile", "url": "https://game.example/lobby" }
+// viewport มือถือ 390x844 ที่ไม่หดเอง; session นี้เป็น active แล้ว
+page_look                       // screenshot ติดเลข ตรง 1:1 กับพิกัด page_click_at
+page_click { "selector": ".play" }   // เปิดเกมใน tab ใหม่ → bfa auto-follow ให้เอง
+page_state                      // ยืนยันว่าอยู่ tab เกมแล้ว
+// ถ้า tab เกมปิดไป tool ตัวถัดไป self-heal ไป tab ที่ยังเปิดอยู่แทนที่จะ error
+net_list { "since": "nav" }     // เฉพาะ request ของหน้านี้ ซ่อน polling ของ lobby เดิม
 ```
 
 ---

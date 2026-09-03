@@ -146,6 +146,14 @@ export class Interceptor {
     this.enabling = null;
   }
 
+  /** Move interception to a different page (tab switch / popup follow / heal), keeping the rule set:
+   *  tear the old Fetch session down, then re-enable on the new page if any rule still wants it. */
+  async rebind(page: Page): Promise<void> {
+    await this.disable();
+    this.page = page;
+    if (this.rules.length > 0) await this.enable();
+  }
+
   private async onPaused(client: CDPSession, e: RequestPausedEvt): Promise<void> {
     try {
       const rule = this.rules.find((r) => e.request.url.includes(r.urlPattern));

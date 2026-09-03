@@ -72,7 +72,7 @@ export async function withDelta(
   run: (recorder: Recorder, page: Page) => Promise<{ note?: string } | void>,
 ): Promise<string> {
   const recorder = mgr.recorderFor(sessionId);
-  const page = mgr.pageFor(sessionId);
+  const page = await mgr.livePageFor(sessionId);
   // Mark with the recorder's own counter — the SAME domain every entry.seq is
   // assigned from — captured strictly before the action dispatches any events.
   // (network.maxSeq() lives in a different, endTs-inflated domain and would drop

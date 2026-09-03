@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { DEVICE_PRESETS } from "../session/manager";
 import type { SessionManager } from "../session/manager";
 import { ok, fail, table } from "../format/compact";
 import { guard } from "./guard";
@@ -17,7 +18,10 @@ export function registerBrowserTools(server: McpServer, mgr: SessionManager): vo
         "passes basic bot checks). Requires starting Chrome first: `./bfa-chrome 9222` (Chrome 136+ needs a non-default " +
         "profile — bfa-chrome handles that). You canNOT attach to an already-open normal Chrome; it has no debug port.\n" +
         "Multiple concurrent sessions are supported. In attach mode only `port` is used — `profile`, `headless`, " +
-        "`incognito` and `viewport` apply to fresh mode only.",
+        "`incognito` applies to fresh mode only. The session you launch becomes the ACTIVE one " +
+        "(tools without sessionId target it). In fresh mode bfa auto-follows a tab the page opens " +
+        "(so a game that launches in a new window keeps being driven); use browser_use_tab to switch " +
+        "manually. For phone/PG games pass device:\"mobile\" for a stable viewport.",
       inputSchema: {
         mode: z.enum(["fresh", "attach"]).describe("fresh = launch our own; attach = connect to a debug-port Chrome"),
         url: z.string().url().optional().describe("optional URL to open immediately"),
@@ -31,6 +35,12 @@ export function registerBrowserTools(server: McpServer, mgr: SessionManager): vo
         profile: z.string().optional().describe("fresh: profile name under ~/.bfa/profiles"),
         incognito: z.boolean().optional().describe("fresh: isolated context with no prior state"),
         headless: z.boolean().optional().describe("fresh: run headless (default false)"),
+        device: z
+          .enum(["mobile", "desktop"])
+          .optional()
+          .describe(
+            'device preset. "mobile" = a STABLE 390x844 phone viewport (dpr 3, mobile layout + iPhone UA) that does not track the OS window, so it never self-shrinks and your click coordinates stay put — use this for phone/PG-style games. "desktop" = 1280x800. Overridden by an explicit `viewport`.',
+          ),
         viewport: z
           .object({
             width: z.number().int().min(1),
@@ -81,25 +91,32 @@ export function registerBrowserTools(server: McpServer, mgr: SessionManager): vo
       description:
         "Resize an existing session's viewport without relaunching. Use a portrait size (e.g. {width:390,height:844}) for canvas/WebGL games so the game fills the screen and page_click_at coordinates land on it. Keep hasTouch:false (default) so mouse clicks drive the game; set hasTouch:true only for games that require touch input.",
       inputSchema: {
-        width: z.number().int().min(1),
-        height: z.number().int().min(1),
+        device: z.enum(["mobile", "desktop"]).optional().describe('preset: "mobile" = 390x844 dpr3 phone (+mobile UA), "desktop" = 1280x800. Overridden by explicit width/height.'),
+        width: z.number().int().min(1).optional(),
+        height: z.number().int().min(1).optional(),
         deviceScaleFactor: z.number().optional(),
         mobile: z.boolean().optional().describe("emulate a mobile device (default false)"),
         hasTouch: z.boolean().optional().describe("emulate touch input (default false; mouse clicks won't drive touch-only games)"),
         sessionId: z.string().optional(),
       },
     },
-    async ({ width, height, deviceScaleFactor, mobile, hasTouch, sessionId }) =>
+    async ({ device, width, height, deviceScaleFactor, mobile, hasTouch, sessionId }) =>
       guard(async () => {
+        const preset = device ? DEVICE_PRESETS[device] : undefined;
+        const w = width ?? preset?.width;
+        const h = height ?? preset?.height;
+        if (w === undefined || h === undefined) return fail("page_set_viewport needs a device preset or explicit width+height");
         const page = mgr.pageFor(sessionId);
+        const ua = preset?.userAgent;
+        if (ua) await page.setUserAgent(ua).catch(() => {});
         await page.setViewport({
-          width,
-          height,
-          deviceScaleFactor: deviceScaleFactor ?? 1,
-          isMobile: mobile ?? false,
-          hasTouch: hasTouch ?? false,
+          width: w,
+          height: h,
+          deviceScaleFactor: deviceScaleFactor ?? preset?.deviceScaleFactor ?? 1,
+          isMobile: mobile ?? preset?.mobile ?? false,
+          hasTouch: hasTouch ?? preset?.hasTouch ?? false,
         });
-        return ok(`viewport → ${width}x${height}`);
+        return ok(`viewport → ${w}x${h}${ua ? " (mobile UA)" : ""}`);
       }),
   );
 
@@ -115,6 +132,20 @@ export function registerBrowserTools(server: McpServer, mgr: SessionManager): vo
           t.url,
         ]);
         return ok(table(["#", "title", "url"], rows));
+      }),
+  );
+
+  server.registerTool(
+    "browser_use_tab",
+    {
+      description:
+        "Switch the session's DRIVEN tab to another one (index from browser_tabs), carrying the network/console recorder and any intercept rules across. Use it to drive a tab the page opened that bfa did not auto-follow, or to go back to the opener. In fresh mode bfa already auto-follows tabs the page opens.",
+      inputSchema: { index: z.number().int().min(0), sessionId: z.string().optional() },
+    },
+    async ({ index, sessionId }) =>
+      guard(async () => {
+        const info = await mgr.useTab(index, sessionId);
+        return ok(`driving tab ${index} → ${info.url ?? "about:blank"}`);
       }),
   );
 

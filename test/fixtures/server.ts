@@ -3,8 +3,9 @@ import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { Socket } from "node:net";
 import type { AddressInfo } from "node:net";
 
-const PAGE = `<!doctype html><html><head><title>BFA Fixture</title></head>
+const PAGE = `<!doctype html><html><head><title>BFA Fixture</title><meta name="viewport" content="width=device-width, initial-scale=1"></head>
 <body><h1 id="hello">hello bfa</h1>
+<button id="openpop" onclick="window.open('/popup', '_blank')">open game</button>
 <form id="login">
   <input name="user">
   <input name="pass" type="password">
@@ -124,9 +125,14 @@ export async function startFixture(): Promise<Fixture> {
 
   const server: Server = createServer((req, res) => {
     const url = req.url ?? "/";
-    if (url === "/") {
+    if (url === "/" || url.startsWith("/?")) {
       res.writeHead(200, { "content-type": "text/html" });
       res.end(PAGE);
+      return;
+    }
+    if (url.startsWith("/popup")) {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end(`<!doctype html><html><head><title>Game Popup</title></head><body><h1 id="game">GAME WINDOW</h1><script>fetch("/api/ok?frompopup").catch(()=>{});</script></body></html>`);
       return;
     }
     if (url === "/api/ok") {

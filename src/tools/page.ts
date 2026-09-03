@@ -27,7 +27,7 @@ export function registerPageTools(server: McpServer, mgr: SessionManager): void 
     async ({ sessionId }) =>
       guard(async () => {
         const st = await mgr.state(sessionId);
-        const vp = st.viewport ? `${st.viewport.width}x${st.viewport.height}` : "default";
+        const vp = st.viewport ? `${st.viewport.width}x${st.viewport.height} (fixed)` : "tracking window (may resize — launch with device:\"mobile\" for a stable viewport)";
         const note = mgr.getEmulationNote(sessionId);
         return ok(
           `session ${st.sessionId} (${st.mode})\nurl: ${st.url}\ntitle: ${st.title ?? ""}\nreadyState: ${st.readyState}\nviewport: ${vp}` +

@@ -15,6 +15,10 @@ export interface LaunchOptions {
   incognito?: boolean;
   /** fresh: run headless (default false). */
   headless?: boolean;
+  /** fresh/attach: a device preset. "mobile" = a stable 390x844 phone viewport (dpr 3, mobile
+   *  layout + UA) that does NOT track — and therefore never self-shrinks with — the OS window,
+   *  which is the usual cause of drifting click coordinates. Overridden by an explicit `viewport`. */
+  device?: "mobile" | "desktop";
   /** fresh/attach: page viewport. Puppeteer defaults to 800x600 landscape, which
    *  letterboxes portrait canvas games (Cocos/WebGL) and lets their full-screen
    *  overlay swallow coordinate clicks. Set e.g. {width:390,height:844} so the

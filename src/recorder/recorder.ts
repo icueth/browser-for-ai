@@ -83,6 +83,20 @@ export class Recorder {
     await client.send("Log.enable");
   }
 
+  /** Point the recorder at a DIFFERENT page — a tab switch, a followed popup, or healing a closed
+   *  tab — WITHOUT losing the accumulated network/console buffers (they are instance state, not
+   *  tied to the CDP session). Detaches from the old page and re-attaches to the new one. */
+  async rebind(page: Page): Promise<void> {
+    await this.stop();
+    this.page = page;
+    await this.start();
+  }
+
+  /** Record a tab switch / popup as a navigation boundary so net_list since:"nav" scopes to it. */
+  markSwitch(url: string): void {
+    this.network.markNavigation(this.next(), url);
+  }
+
   async stop(): Promise<void> {
     this.page.off("framenavigated", this.onFrameNavigated);
     try {

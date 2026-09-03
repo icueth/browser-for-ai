@@ -4,7 +4,7 @@
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)
 ![MCP](https://img.shields.io/badge/MCP-server-8A2BE2.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6.svg)
-![Tools](https://img.shields.io/badge/tools-50-0a8fa6.svg)
+![Tools](https://img.shields.io/badge/tools-51-0a8fa6.svg)
 
 **English** · [ภาษาไทย](README.th.md)
 
@@ -37,6 +37,11 @@ The things a screenshot-only browser tool can't do:
   Slow 3G / offline / custom bandwidth with CPU slowdown.
 - **🗂️ Real sessions.** Many concurrent sessions, incognito, **attach to your
   logged-in Chrome**, save/restore cookies + storage, and complete cache clearing.
+- **🎯 Drives the right tab, on a viewport that stays put.** The session you launch is the
+  active one; bfa **auto-follows a tab the page opens** (a game that launches in a new window
+  keeps being driven) and **self-heals** to a live tab instead of erroring when one closes.
+  Launch with `device:"mobile"` for a **stable 390×844 phone viewport** that will not
+  self-shrink, so `page_look` / `page_click_at` coordinates stay accurate.
 - **⚡ Fast, and it never hangs.** `page_batch` runs a whole sequence in one round-trip and
   can end with a look; actions settle on *quiet* instead of fixed sleeps; `page_wait_for` /
   `net_wait` return the moment a condition holds. Every call is time-bounded: a runaway
@@ -145,15 +150,21 @@ browser_close { "all": true }
   `{ "profile": "work" }` persists under `~/.bfa/profiles/work` so logins survive.
   Two concurrent sessions on the *same named* profile collide; unnamed ones are
   always safe.
-- **Viewport** at launch, or `page_set_viewport` on a live session.
+- **`device: "mobile"`** — a stable 390×844 phone viewport (dpr 3, mobile layout + UA) that
+  does **not** track the OS window, so it never self-shrinks and click coordinates stay put.
+  Use it for phone / PG-style games. `device: "desktop"` is 1280×800. An explicit `viewport`
+  overrides a preset; with neither, the page tracks the real window (which can resize).
+- **Viewport** at launch, or `page_set_viewport { device }` / `{ width, height }` on a live session.
 
-Manage with `browser_sessions`, `browser_use { sessionId }`, `browser_tabs`,
-`browser_close`. Most tools accept an optional `sessionId`; without it they target
-the active session.
+The session you launch becomes the **active** one; a second launch makes that one active.
+In fresh mode bfa **auto-follows a tab the page opens** and **self-heals** to another live tab
+if the driven one closes. Manage with `browser_sessions`, `browser_use { sessionId }`,
+`browser_tabs`, `browser_use_tab { index }`, `browser_close`. Most tools accept an optional
+`sessionId`; without it they target the active session.
 
 ---
 
-## Tool reference (50)
+## Tool reference (51)
 
 ### Sessions & lifecycle
 | tool | purpose |
@@ -162,6 +173,7 @@ the active session.
 | `browser_sessions` | list open sessions |
 | `browser_use` | set the default session |
 | `browser_tabs` | list a session's tabs/targets |
+| `browser_use_tab` | switch the driven tab (carries recorder + intercept rules; fresh mode auto-follows opened tabs) |
 | `browser_close` | close one session, or `all` |
 | `browser_clear_cache` | clear cache + cookies + storage |
 | `browser_hard_reload` | bypass-cache reload |
@@ -201,13 +213,13 @@ the active session.
 ### Network (deep read)
 | tool | purpose |
 |---|---|
-| `net_list` | recent requests (filter by url/method/type/status) |
+| `net_list` | recent requests (filter by url/method/type/status; `since:"nav"` for this page only) |
 | `net_get` | one request in full: headers, request & response bodies |
 | `net_failures` | 4xx/5xx + transport failures with error detail |
 | `net_pending` | requests still in flight (hang candidates) |
 | `net_slow` | finished requests slower than a threshold |
 | `net_ws` | WebSocket connections + recent frames |
-| `net_wait` | wait until a matching request appears / settles |
+| `net_wait` | wait until a matching request appears / settles (only requests since your last action) |
 
 ### Traffic shaping & emulation
 | tool | purpose |
@@ -367,6 +379,18 @@ page_batch { "steps": [
 ], "look": true }
 // → one combined network/console/url delta + a badged screenshot of the dashboard,
 //   so the next page_click {ref} is chosen from the same reply. Stops at the first failing step.
+```
+
+### I. Phone / PG-style game (stable viewport, auto-followed tab)
+
+```jsonc
+browser_launch { "mode": "fresh", "device": "mobile", "url": "https://game.example/lobby" }
+// 390x844 phone viewport that WON'T self-shrink; this session is now active.
+page_look                       // badged screenshot, 1:1 with page_click_at coordinates
+page_click { "selector": ".play" }   // opens the game in a new tab → bfa auto-follows it
+page_state                      // confirms you are now on the game tab
+// if the game tab ever closes, the next tool self-heals to a live tab instead of erroring.
+net_list { "since": "nav" }     // only this page's requests — earlier lobby polling is hidden
 ```
 
 ---
