@@ -49,6 +49,30 @@ export class NetworkBuffer {
   // here until the entry exists, then merged in. Bounded so an orphan id can't leak forever.
   private pendingReqExtra = new Map<string, Record<string, string>>();
   private pendingResExtra = new Map<string, Record<string, string>>();
+  // Main-frame navigations (and tab switches), newest last, so callers can scope a listing to
+  // "this page load" — the buffer deliberately accumulates across navigations for flow capture,
+  // which otherwise leaves stale requests from earlier pages mixed into every net_list.
+  private navs: { afterSeq: number; url: string }[] = [];
+
+  /** Record a main-frame navigation to `url`. The mark is placed just BEFORE that page's own
+   *  document request when we can find it, so a since-navigation listing includes the HTML fetch. */
+  markNavigation(seq: number, url: string): void {
+    let afterSeq = seq;
+    for (let i = this.order.length - 1, seen = 0; i >= 0 && seen < 50; i--, seen++) {
+      const e = this.entries.get(this.order[i]!);
+      if (e && e.resourceType === "Document" && e.url === url) {
+        afterSeq = e.seq - 1;
+        break;
+      }
+    }
+    this.navs.push({ afterSeq, url });
+    if (this.navs.length > 50) this.navs.shift();
+  }
+
+  /** The most recent navigation mark, or null before any navigation was recorded. */
+  lastNavigation(): { afterSeq: number; url: string } | null {
+    return this.navs[this.navs.length - 1] ?? null;
+  }
 
   requestWillBeSent(seq: number, e: ReqEvt): void {
     this.seqMax = Math.max(this.seqMax, seq);
@@ -168,6 +192,7 @@ export class NetworkBuffer {
 
   list(filter: NetFilter = {}): NetEntry[] {
     let rows = this.order.map((id) => this.entries.get(id)!).filter(Boolean);
+    if (filter.afterSeq !== undefined) rows = rows.filter((e) => e.seq > filter.afterSeq!);
     if (filter.onlyXhr) rows = rows.filter((e) => e.resourceType === "XHR" || e.resourceType === "Fetch");
     if (filter.urlIncludes) rows = rows.filter((e) => e.url.includes(filter.urlIncludes!));
     if (filter.method) rows = rows.filter((e) => e.method.toUpperCase() === filter.method!.toUpperCase());
@@ -190,12 +215,12 @@ export class NetworkBuffer {
     return undefined;
   }
 
-  failures(): NetEntry[] {
-    return this.list().filter((e) => e.failed || (e.status !== undefined && e.status >= 400));
+  failures(afterSeq?: number): NetEntry[] {
+    return this.list({ afterSeq }).filter((e) => e.failed || (e.status !== undefined && e.status >= 400));
   }
 
-  pending(nowSeq: number): NetEntry[] {
-    return this.list().filter((e) => !e.finished && !e.failed && e.seq <= nowSeq);
+  pending(nowSeq: number, afterSeq?: number): NetEntry[] {
+    return this.list({ afterSeq }).filter((e) => !e.finished && !e.failed && e.seq <= nowSeq);
   }
 
   wsList(): WsEntry[] {

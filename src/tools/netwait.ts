@@ -54,23 +54,30 @@ export function registerNetWaitTools(server: McpServer, mgr: SessionManager): vo
         status: z.number().int().optional(),
         timeoutMs: z.number().int().positive().max(60000).optional().describe("max time to wait in ms (default 10000, max 60000)"),
         requireFinished: z.boolean().optional().describe("only match once the request has finished (default false)"),
+        includeExisting: z
+          .boolean()
+          .optional()
+          .describe("also match requests recorded BEFORE your last action (default false: only requests since the last page_goto/click/eval/… count, so an old polling call can't satisfy the wait)"),
       },
     },
-    async ({ sessionId, urlIncludes, method, status, timeoutMs, requireFinished }) =>
+    async ({ sessionId, urlIncludes, method, status, timeoutMs, requireFinished, includeExisting }) =>
       guard(async () => {
         const recorder = mgr.recorderFor(sessionId);
         const timeout = timeoutMs ?? DEFAULT_TIMEOUT_MS;
         const deadline = Date.now() + timeout;
+        // Scope to requests started since the last action (set by withDelta / goto): a match from an
+        // earlier page — a lobby's polling loop, a previous login — must not resolve this wait.
+        const afterSeq = includeExisting ? undefined : recorder.lastActionMark;
 
         for (;;) {
-          const hit = recorder.network.list().find((e) => matches(e, urlIncludes, method, status, requireFinished));
+          const hit = recorder.network.list({ afterSeq }).find((e) => matches(e, urlIncludes, method, status, requireFinished));
           if (hit) {
             const statusLabel = hit.failed ? "FAIL" : String(hit.status ?? (hit.finished ? "-" : "…"));
             return ok(`${hit.method} ${statusLabel} ${hit.url}`);
           }
           const remaining = deadline - Date.now();
           if (remaining <= 0) {
-            return fail(`net_wait: no match for ${describeCriteria(urlIncludes, method, status, requireFinished)} in ${timeout}ms`);
+            return fail(`net_wait: no match for ${describeCriteria(urlIncludes, method, status, requireFinished)} in ${timeout}ms${includeExisting ? "" : " (since your last action; pass includeExisting:true to search the whole buffer)"}`);
           }
           await sleep(Math.min(POLL_INTERVAL_MS, remaining));
         }

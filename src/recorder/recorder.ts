@@ -1,4 +1,4 @@
-import type { CDPSession, Page } from "puppeteer-core";
+import type { CDPSession, Frame, Page } from "puppeteer-core";
 import { NetworkBuffer } from "./network";
 import { ConsoleBuffer } from "./console";
 
@@ -46,9 +46,14 @@ export class Recorder {
     }
   }
 
+  private onFrameNavigated = (frame: Frame): void => {
+    if (frame === this.page.mainFrame()) this.network.markNavigation(this.next(), frame.url());
+  };
+
   async start(): Promise<void> {
     const client = await this.page.createCDPSession();
     this.client = client;
+    this.page.on("framenavigated", this.onFrameNavigated);
     // Register handlers BEFORE enabling the domains so events emitted during the
     // enable round-trips (e.g. attaching to an already-live page) aren't dropped.
     client.on("Network.requestWillBeSent", (e) => this.safe(() => this.network.requestWillBeSent(this.next(), e as never)));
@@ -79,6 +84,7 @@ export class Recorder {
   }
 
   async stop(): Promise<void> {
+    this.page.off("framenavigated", this.onFrameNavigated);
     try {
       await this.client?.detach();
     } catch {
@@ -91,6 +97,7 @@ export class Recorder {
    *  disconnect the whole browser connection (which tears the session down anyway). Awaiting a
    *  detach on a wedged renderer can stall for the entire protocol timeout. */
   abandon(): void {
+    this.page.off("framenavigated", this.onFrameNavigated);
     this.client = null;
   }
 

@@ -9,7 +9,10 @@ export class SessionRegistry {
     const id = `s${++this.counter}`;
     const session: Session = { ...s, id };
     this.sessions.set(id, session);
-    if (this.active === undefined) this.active = id;
+    // The session you just launched is the one you mean to drive next: make it active. (Previously
+    // only the FIRST session ever became active, so tools called without sessionId after a second
+    // browser_launch silently kept operating on s1.)
+    this.active = id;
     return session;
   }
 

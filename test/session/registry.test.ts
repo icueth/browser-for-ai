@@ -22,12 +22,13 @@ describe("SessionRegistry", () => {
     expect(r.add(fakeSession()).id).toBe("s2");
   });
 
-  it("first added session becomes active; get() with no id returns active", () => {
+  it("the most recently added session is active; get() with no id returns it", () => {
     const r = new SessionRegistry();
     const a = r.add(fakeSession());
-    r.add(fakeSession());
     expect(r.activeId()).toBe(a.id);
-    expect(r.get()?.id).toBe(a.id);
+    const b = r.add(fakeSession());
+    expect(r.activeId()).toBe(b.id);
+    expect(r.get()?.id).toBe(b.id);
   });
 
   it("setActive changes the active session; unknown id returns false", () => {
@@ -57,5 +58,18 @@ describe("SessionRegistry", () => {
     expect(r.removeAll()).toHaveLength(2);
     expect(r.list()).toHaveLength(0);
     expect(r.activeId()).toBeUndefined();
+  });
+});
+
+describe("active session follows the latest launch", () => {
+  it("the second add() becomes active, so tools without sessionId target the session just launched", async () => {
+    const { SessionRegistry } = await import("../../src/session/registry");
+    const reg = new SessionRegistry();
+    const fake = () => ({}) as unknown as Omit<import("../../src/types").Session, "id">;
+    const s1 = reg.add(fake());
+    expect(reg.activeId()).toBe(s1.id);
+    const s2 = reg.add(fake());
+    expect(reg.activeId()).toBe(s2.id);
+    expect(reg.get()?.id).toBe(s2.id);
   });
 });

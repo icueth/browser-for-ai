@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Recorder } from "../recorder/recorder";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { SessionManager } from "../session/manager";
 import type { NetEntry } from "../recorder/types";
@@ -20,6 +21,28 @@ function failuresTable(rows: NetEntry[]): string {
   return table(["method", "status", "type", "error", "url"], body);
 }
 
+const SINCE_SCHEMA = z
+  .enum(["all", "nav"])
+  .optional()
+  .describe('"nav" = only requests since the last main-frame navigation / tab switch (this page load); default "all" keeps earlier pages too, for flows that span a redirect');
+
+/** Recorder seq to list after, or undefined for the whole buffer. */
+function scopeSeq(recorder: Recorder, since: "all" | "nav" | undefined): number | undefined {
+  if (since !== "nav") return undefined;
+  return recorder.network.lastNavigation()?.afterSeq ?? undefined;
+}
+
+/** When a whole-buffer listing still shows rows from BEFORE the current page, say so — stale
+ *  requests from an earlier page (a lobby's polling loop) otherwise read as if they were live. */
+function staleHint(recorder: Recorder, since: "all" | "nav" | undefined, shown: NetEntry[]): string {
+  if (since === "nav") return "";
+  const nav = recorder.network.lastNavigation();
+  if (!nav) return "";
+  const older = shown.filter((e) => e.seq <= nav.afterSeq).length;
+  if (older === 0) return "";
+  return `\n${older} of these are from BEFORE the current page (${nav.url}) — pass since:"nav" to see only this page's requests`;
+}
+
 export function registerNetTools(server: McpServer, mgr: SessionManager): void {
   server.registerTool(
     "net_list",
@@ -33,13 +56,15 @@ export function registerNetTools(server: McpServer, mgr: SessionManager): void {
         status: z.number().int().optional(),
         onlyXhr: z.boolean().optional().describe("restrict to XHR/Fetch requests"),
         limit: z.number().int().positive().optional().describe("max rows to return (default 50)"),
+        since: SINCE_SCHEMA,
       },
     },
-    async ({ sessionId, urlIncludes, method, type, status, onlyXhr, limit }) =>
+    async ({ sessionId, urlIncludes, method, type, status, onlyXhr, limit, since }) =>
       guard(async () => {
         const recorder = mgr.recorderFor(sessionId);
-        const all = recorder.network.list({ urlIncludes, method, type, status, onlyXhr });
-        if (all.length === 0) return ok("no requests recorded");
+        const afterSeq = scopeSeq(recorder, since);
+        const all = recorder.network.list({ urlIncludes, method, type, status, onlyXhr, afterSeq });
+        if (all.length === 0) return ok(since === "nav" ? "no requests recorded since the last navigation" : "no requests recorded");
         const max = limit ?? DEFAULT_LIST_LIMIT;
         // list() is chronological; keep the TAIL so the newest rows survive the cap.
         const shown = all.slice(-max);
@@ -47,6 +72,7 @@ export function registerNetTools(server: McpServer, mgr: SessionManager): void {
         if (shown.length < all.length) {
           text += `\nshowing last ${shown.length} of ${all.length} (raise limit for more)`;
         }
+        text += staleHint(recorder, since, shown);
         return ok(text);
       }),
   );
@@ -79,12 +105,13 @@ export function registerNetTools(server: McpServer, mgr: SessionManager): void {
     "net_failures",
     {
       description: "List failed network requests (4xx/5xx status or CDP-level failure) with error detail.",
-      inputSchema: { sessionId: z.string().optional() },
+      inputSchema: { sessionId: z.string().optional(), since: SINCE_SCHEMA },
     },
-    async ({ sessionId }) =>
+    async ({ sessionId, since }) =>
       guard(async () => {
         const recorder = mgr.recorderFor(sessionId);
-        return ok(failuresTable(recorder.network.failures()));
+        const rows = recorder.network.failures(scopeSeq(recorder, since));
+        return ok(failuresTable(rows) + staleHint(recorder, since, rows));
       }),
   );
 
@@ -92,12 +119,13 @@ export function registerNetTools(server: McpServer, mgr: SessionManager): void {
     "net_pending",
     {
       description: "List network requests still in flight (candidates for a hang) as of now.",
-      inputSchema: { sessionId: z.string().optional() },
+      inputSchema: { sessionId: z.string().optional(), since: SINCE_SCHEMA },
     },
-    async ({ sessionId }) =>
+    async ({ sessionId, since }) =>
       guard(async () => {
         const recorder = mgr.recorderFor(sessionId);
-        return ok(netTable(recorder.network.pending(recorder.seqNow())));
+        const rows = recorder.network.pending(recorder.seqNow(), scopeSeq(recorder, since));
+        return ok(netTable(rows) + staleHint(recorder, since, rows));
       }),
   );
 

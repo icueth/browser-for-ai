@@ -49,7 +49,7 @@ export function registerBrowserTools(server: McpServer, mgr: SessionManager): vo
       guard(async () => {
         const info = await mgr.launch(args);
         const inc = info.incognito ? " incognito" : "";
-        return ok(`session ${info.sessionId} (${info.mode}${inc}) → ${info.url ?? "about:blank"}`);
+        return ok(`session ${info.sessionId} (${info.mode}${inc}) → ${info.url ?? "about:blank"}\nnow the active session: tools without sessionId target ${info.sessionId}`);
       }),
   );
 

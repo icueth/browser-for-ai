@@ -56,3 +56,21 @@ describe("recorder buffers are bounded (long sessions must not grow without limi
     expect(c.list().length).toBe(2000);
   });
 });
+
+describe("navigation marks", () => {
+  it("markNavigation lands just before the page's own document request; afterSeq scopes list()", async () => {
+    const { NetworkBuffer } = await import("../../src/recorder/network");
+    const nb = new NetworkBuffer();
+    const req = (seq: number, id: string, url: string, type = "XHR") =>
+      nb.requestWillBeSent(seq, { requestId: id, type, request: { url, method: "GET" } } as never);
+    req(1, "a", "http://x/old-poll");
+    req(2, "doc", "http://x/page2", "Document");
+    req(3, "b", "http://x/page2-api");
+    nb.markNavigation(4, "http://x/page2");
+    const nav = nb.lastNavigation();
+    expect(nav?.url).toBe("http://x/page2");
+    expect(nav?.afterSeq).toBe(1); // doc seq 2 − 1 → the document request itself is included
+    expect(nb.list({ afterSeq: nav!.afterSeq }).map((e) => e.id)).toEqual(["doc", "b"]);
+    expect(nb.lastNavigation()).not.toBeNull();
+  });
+});

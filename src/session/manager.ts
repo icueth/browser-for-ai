@@ -370,8 +370,19 @@ export class SessionManager {
     return interceptor;
   }
 
+  /** Resolved id of the session a call targets (the active one when `id` is omitted). */
+  resolveSessionId(id?: SessionId): SessionId {
+    return this.require(id).id;
+  }
+
+  sessionCount(): number {
+    return this.registry.list().length;
+  }
+
   async goto(url: string, id?: SessionId): Promise<SessionInfo> {
     const s = this.require(id);
+    // A navigation is an action: net_wait / page_wait_for measure "since your last action" from here.
+    s.recorder.lastActionMark = s.recorder.seqNow();
     await s.page.goto(url, { waitUntil: "load" });
     return this.toInfo(s);
   }

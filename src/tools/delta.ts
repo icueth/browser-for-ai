@@ -93,6 +93,8 @@ export async function withDelta(
   const consoleShown = newConsole.slice(-DELTA_ROW_CAP);
 
   const lines: string[] = [];
+  // With several sessions open, a missing sessionId silently targets the active one — say which.
+  if (mgr.sessionCount() > 1) lines.push(`session: ${mgr.resolveSessionId(sessionId)}`);
   if (res?.note) lines.push(res.note);
   if (urlBefore !== urlAfter) lines.push(`url: ${urlBefore} → ${urlAfter}`);
   lines.push("");

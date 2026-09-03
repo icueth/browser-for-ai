@@ -18,5 +18,5 @@ export interface NetEntry {
 }
 export interface WsFrame { seq: number; dir: "sent" | "recv"; opcode: number; payload: string; ts: number }
 export interface WsEntry { id: string; seq: number; url: string; frames: WsFrame[]; closed: boolean }
-export interface NetFilter { urlIncludes?: string; method?: string; type?: string; status?: number; onlyXhr?: boolean }
+export interface NetFilter { urlIncludes?: string; method?: string; type?: string; status?: number; onlyXhr?: boolean; /** only entries recorded after this recorder seq (e.g. the last navigation mark) */ afterSeq?: number }
 export interface ConsoleEntry { seq: number; level: string; text: string; count: number; source: string; url?: string; line?: number; stack?: string }
