@@ -87,7 +87,16 @@ export class Recorder {
    *  tab — WITHOUT losing the accumulated network/console buffers (they are instance state, not
    *  tied to the CDP session). Detaches from the old page and re-attaches to the new one. */
   async rebind(page: Page): Promise<void> {
-    await this.stop();
+    // Bounded teardown: on a wedged renderer an awaited detach() can stall for the whole protocol
+    // timeout, which is exactly the freeze rebind is being used to escape.
+    this.page.off("framenavigated", this.onFrameNavigated);
+    const old = this.client;
+    this.client = null;
+    if (old) {
+      let t: NodeJS.Timeout | undefined;
+      await Promise.race([old.detach().catch(() => undefined), new Promise<void>((r) => (t = setTimeout(r, 1500)))]);
+      if (t) clearTimeout(t);
+    }
     this.page = page;
     await this.start();
   }

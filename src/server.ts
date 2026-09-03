@@ -62,7 +62,7 @@ const BFA_INSTRUCTIONS = [
 ].join("\n");
 
 export function createServer(): { server: McpServer; mgr: SessionManager } {
-  const server = new McpServer({ name: "browser-for-ai", version: "0.4.1" }, { instructions: BFA_INSTRUCTIONS });
+  const server = new McpServer({ name: "browser-for-ai", version: "0.5.0" }, { instructions: BFA_INSTRUCTIONS });
   const mgr = new SessionManager();
   registerBrowserTools(server, mgr);
   registerPageTools(server, mgr);

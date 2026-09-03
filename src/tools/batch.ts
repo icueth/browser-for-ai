@@ -12,7 +12,7 @@ import { captureLook } from "./look";
 import { waitFor } from "./waitfor";
 import { fillElement } from "./fillx";
 
-const ACTIONS = ["click", "type", "fill", "select", "key", "hover", "scroll", "click_at", "goto", "wait", "wait_for"] as const;
+const ACTIONS = ["click", "type", "fill", "select", "key", "hover", "scroll", "click_at", "tap_at", "goto", "wait", "wait_for"] as const;
 const MAX_STEPS = 40;
 const DEFAULT_STEP_SETTLE_MS = 300;
 
@@ -23,8 +23,8 @@ const stepSchema = z.object({
   text: z.string().optional().describe("target the first interactive element whose visible text contains this (case-insensitive) — the robust choice inside a batch; for wait_for: the text to wait for"),
   value: z.string().optional().describe("type/fill: the text to enter; select: the option value"),
   keys: z.string().optional().describe('key: e.g. "Enter", "Control+A"'),
-  x: z.number().optional().describe("click_at: viewport x (CSS px)"),
-  y: z.number().optional().describe("click_at: viewport y (CSS px)"),
+  x: z.number().optional().describe("click_at / tap_at: viewport x (CSS px, 1:1 with a page_look screenshot)"),
+  y: z.number().optional().describe("click_at / tap_at: viewport y (CSS px, 1:1 with a page_look screenshot)"),
   dy: z.number().optional().describe("scroll: pixels to scroll the window when no target is given (default 600)"),
   url: z.string().optional().describe("goto: the URL; wait_for: substring the URL must contain"),
   ms: z.number().int().positive().max(10_000).optional().describe("wait: how long to sleep; wait_for: networkIdleMs"),
@@ -132,6 +132,13 @@ async function runStep(mgr: SessionManager, sessionId: string | undefined, recor
       await page.mouse.click(s.x, s.y);
       return `clicked at (${s.x}, ${s.y})`;
     }
+    case "tap_at": {
+      if (s.x === undefined || s.y === undefined) throw new Error(`${tool}: needs x and y`);
+      const { w, h } = await page.evaluate(() => ({ w: window.innerWidth, h: window.innerHeight }));
+      if (s.x < 0 || s.y < 0 || s.x > w || s.y > h) throw new Error(`${tool}: (${s.x}, ${s.y}) is outside the ${w}×${h} viewport`);
+      await page.touchscreen.tap(s.x, s.y);
+      return `tapped at (${s.x}, ${s.y})`;
+    }
     case "goto": {
       if (!s.url) throw new Error(`${tool}: needs url`);
       await mgr.goto(s.url, sessionId);
@@ -156,8 +163,11 @@ export function registerBatchTools(server: McpServer, mgr: SessionManager): void
     "page_batch",
     {
       description:
-        "Run a SEQUENCE of actions in one call (click / type / fill / select / key / hover / scroll / click_at / goto / " +
-        "wait / wait_for), settling briefly between steps, and report ONE combined network/console/url delta at the end — " +
+        "Run a SEQUENCE of actions in one call. Each step is an object with an `action` field, e.g. " +
+        '{ "action": "tap_at", "x": 195, "y": 615 } or { "action": "wait_for", "networkIdleMs": 800 } — NOT ' +
+        '{ "tap_at": ... }. Actions: click / type / fill / select / key / hover / scroll / click_at / tap_at ' +
+        "(touch, for Cocos/canvas games) / goto / wait / wait_for. Steps settle briefly between each, and it reports " +
+        "ONE combined network/console/url delta at the end — " +
         "far faster than one tool call per step. Target steps by selector, by text (\"the button that says Login\"), or " +
         "by ref (refs stay valid inside a batch — text targeting does not renumber them — but any step that changes the DOM invalidates them, so prefer selector/text after such a step). Stops at the first " +
         "failing step unless stopOnError:false. Set look:true to get a page_look (badged 1:1 screenshot + legend) of the " +

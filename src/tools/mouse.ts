@@ -54,7 +54,7 @@ export function registerMouseTools(server: McpServer, mgr: SessionManager): void
     "page_tap_at",
     {
       description:
-        "Touch-TAP at a raw viewport coordinate in CSS px (same space as page_screenshot/page_look images; dispatches touchstart→touchend, for canvas/WebGL games that listen for touch rather than mouse) and report the network/console/url delta it caused. Requires the session viewport to have hasTouch:true (set it via browser_launch {viewport:{...,hasTouch:true}} or page_set_viewport). If a game ignores page_click_at, try this.",
+        "Touch-TAP at a raw viewport coordinate in CSS px (same space as page_screenshot/page_look images; dispatches touchstart→touchend, for canvas/WebGL games that listen for touch rather than mouse) and report the network/console/url delta it caused. Requires touch emulation: launch with device:'mobile' (touch on by default) or set hasTouch:true via browser_launch {viewport:{...,hasTouch:true}} / page_set_viewport. If a game ignores page_click_at, try this.",
       inputSchema: {
         x: z.number(),
         y: z.number(),

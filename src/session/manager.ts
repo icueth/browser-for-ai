@@ -15,15 +15,15 @@ const TEMP_PREFIX = "bfa-";
 /** Device presets. A preset pins a device-metrics override (a fixed viewport), which — unlike the
  *  defaultViewport:null "track the window" mode — does NOT resize itself when the OS window changes,
  *  the usual cause of "it opened full then shrank and now my clicks miss". `mobile` also serves a
- *  phone layout + UA. hasTouch stays false so page.mouse.click / page_click_at keep driving games
- *  that listen for mouse input; use page_tap_at for touch-only games. */
+ *  phone layout + UA. mobile has hasTouch:true so page_tap_at works out of the box (phones are touch); page.mouse.click /
+ *  page_click_at still dispatch mouse events too, so both interaction styles work. */
 const MOBILE_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
 export const DEVICE_PRESETS: Record<
   NonNullable<LaunchOptions["device"]>,
   { width: number; height: number; deviceScaleFactor: number; mobile: boolean; hasTouch: boolean; userAgent?: string }
 > = {
-  mobile: { width: 390, height: 844, deviceScaleFactor: 3, mobile: true, hasTouch: false, userAgent: MOBILE_UA },
+  mobile: { width: 390, height: 844, deviceScaleFactor: 3, mobile: true, hasTouch: true, userAgent: MOBILE_UA },
   desktop: { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false, hasTouch: false },
 };
 
@@ -162,12 +162,13 @@ export class SessionManager {
       const context: BrowserContext = opts.incognito
         ? await browser.createBrowserContext()
         : browser.defaultBrowserContext();
-      // Reuse Chrome's initial tab instead of opening a second one on top of it: otherwise the
-      // browser's own about:blank sits at tab 0 and the page we drive is tab 1, so browser_tabs
-      // shows a phantom blank and browser_use_tab {index:0} lands on nothing. (Incognito contexts
-      // start with no page, so there we do create one.)
+      // Reuse Chrome's initial BLANK tab so browser_tabs doesn't show a phantom about:blank at
+      // index 0 — but NEVER reuse a tab already sitting on a real URL (a named profile that
+      // restored last session's tabs, or a hung page). Reusing one of those meant "launch game X"
+      // silently kept showing game Y. When in doubt, open a clean new tab.
       const existing = opts.incognito ? [] : await context.pages();
-      const page: Page = existing[0] ?? (await context.newPage());
+      const blank = existing.find((p) => isBlankPage(p));
+      const page: Page = blank ?? (await context.newPage());
       await applyViewport(page, opts);
       installDialogGuard(page);
       // We own this browser: guard dialogs in popups / new tabs the page opens as well, so an
@@ -474,6 +475,28 @@ export class SessionManager {
     return s.page;
   }
 
+  /** Re-attach the recorder to a live page with a FRESH CDP session, discarding a stale frame/session
+   *  reference that makes actions throw "Attempted to use detached Frame". Heals to another tab first
+   *  if the driven one is gone. Used by the action heal-retry and browser_recover. */
+  async reattach(id?: SessionId): Promise<Page> {
+    const s = this.require(id);
+    await this.ensureLivePage(s);
+    await s.recorder.rebind(s.page).catch(() => {});
+    const interceptor = this.interceptors.get(s.id);
+    if (interceptor) await interceptor.rebind(s.page).catch(() => {});
+    return s.page;
+  }
+
+  /** Open a clean new tab in the session's context and drive it — the last-resort recovery when a
+   *  page can't be un-wedged, so the caller can page_goto again WITHOUT close+relaunch. */
+  async freshTab(id?: SessionId): Promise<Page> {
+    const s = this.require(id);
+    const page = await s.context.newPage();
+    await this.rebindSession(s, page);
+    await page.bringToFront().catch(() => {});
+    return s.page;
+  }
+
   /** Switch the driven tab to `index` (from browser_tabs), carrying recorder + intercept state. */
   async useTab(index: number, id?: SessionId): Promise<SessionInfo> {
     const s = this.require(id);
@@ -495,13 +518,20 @@ export class SessionManager {
     try {
       await s.page.goto(url, { waitUntil: "load" });
     } catch (err) {
-      // The tab may have been torn down between the liveness check and goto (a close mid-flight, a
-      // frame detach). Heal to a DIFFERENT live tab and retry once rather than surfacing "detached
-      // Frame". Re-throw a genuine navigation failure (bad URL, unreachable host) unchanged.
-      if (isTransportError(err) && (await this.healToAnotherTab(s, true))) {
+      // A stale main-frame / CDP reference throws "Attempted to use detached Frame" even though the
+      // tab is fine — re-attach the recorder with a fresh session and retry on the SAME page first.
+      // If that still fails, the tab really went away: heal to another live tab. Re-throw a genuine
+      // navigation failure (bad URL, unreachable host) unchanged.
+      if (!isTransportError(err)) throw err;
+      await s.recorder.rebind(s.page).catch(() => {});
+      try {
         await s.page.goto(url, { waitUntil: "load" });
-      } else {
-        throw err;
+      } catch (err2) {
+        if (isTransportError(err2) && (await this.healToAnotherTab(s, true))) {
+          await s.page.goto(url, { waitUntil: "load" });
+        } else {
+          throw err2;
+        }
       }
     }
     // A tab that died mid-navigation leaves us on chrome-error without throwing: heal + retry once.
@@ -675,12 +705,25 @@ function profileInUse(profileDir: string): boolean {
   }
 }
 
-/** True for errors that mean "the tab/CDP connection went away" — worth a heal-and-retry, unlike
- *  a genuine navigation failure (bad URL, net::ERR_*) which must surface. */
-function isTransportError(err: unknown): boolean {
-  return /detached|Target closed|Session closed|Execution context was destroyed|Protocol error/i.test(
+/** True for errors that mean "the tab/CDP connection/frame went away" — worth a heal-and-retry,
+ *  unlike a genuine navigation failure (bad URL, net::ERR_*) which must surface. Exported so the
+ *  action wrapper (withDelta) can retry the same class of failure. */
+export function isTransportError(err: unknown): boolean {
+  return /detached|Target closed|Session closed|Execution context was destroyed|frame got detached|Protocol error/i.test(
     err instanceof Error ? err.message : String(err),
   );
+}
+
+/** A tab that carries no real page yet (Chrome's initial tab, a just-opened blank) and is therefore
+ *  safe to reuse for a fresh launch. Anything already on a site is left alone. */
+function isBlankPage(p: Page): boolean {
+  try {
+    if (p.isClosed()) return false;
+    const u = p.url();
+    return u === "" || u === "about:blank" || u.startsWith("chrome://newtab") || u.startsWith("chrome://new-tab");
+  } catch {
+    return false;
+  }
 }
 
 function safeUrl(page: Page): string | null {

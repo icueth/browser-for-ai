@@ -34,9 +34,11 @@
   offline / bandwidth กำหนดเอง พร้อมหน่วง CPU
 - **🗂️ session จริง** — หลาย session พร้อมกัน, incognito, **attach เข้า Chrome ที่
   ล็อกอินอยู่**, save/restore cookie + storage, และล้าง cache สมบูรณ์
-- **🎯 ขับ tab ที่ถูกต้อง บน viewport ที่นิ่ง** — session ที่ launch คือตัว active; bfa **auto-follow tab
-  ที่หน้าเปิด** (เกมที่เด้งหน้าต่างใหม่ก็ยังถูกขับต่อ) และ **self-heal** ไป tab ที่ยังเปิดอยู่แทนที่จะ error เมื่อ tab ปิด
-  launch ด้วย `device:"mobile"` เพื่อ viewport มือถือ **390×844 ที่นิ่ง ไม่หด**เอง พิกัด `page_look` / `page_click_at` จึงไม่เพี้ยน
+- **🎯 ขับ tab ที่ถูกต้อง บน viewport ที่นิ่ง — ทีละเกมต่อเนื่อง** — session ที่ launch คือตัว active และทุก launch
+  จะโหลด URL ที่สั่งเสมอ (ไม่ reuse tab เกมก่อนหน้าเงียบๆ); bfa **auto-follow tab ที่หน้าเปิด** และ **self-heal**
+  tab ที่ detached/ปิด/chrome-error (action re-attach + retry ให้; `browser_recover` reset frame ค้างหรือให้ tab ใหม่)
+  แทนที่จะต้อง relaunch launch ด้วย `device:"mobile"` เพื่อ viewport มือถือ **390×844 ที่นิ่ง ไม่หด**เอง (touch เปิด
+  จึง `page_tap_at` และ `page_batch {action:"tap_at"}` ขับเกม Cocos/canvas ได้) พิกัดไม่เพี้ยนตลอด batch 12 เกม
 - **⚡ เร็ว และไม่มีวันค้าง** — `page_batch` ทำทั้งลำดับในรอบเดียวและปิดท้ายด้วย look ได้;
   ทุก action รอแค่จน "นิ่ง" ไม่ใช่ sleep ตายตัว; `page_wait_for` / `net_wait` คืนทันทีที่เงื่อนไขจริง
   ทุกคำสั่งมีเพดานเวลา: สคริปต์วนลูปถูกหยุด (`page_eval` มี budget, `browser_recover`),

@@ -37,11 +37,14 @@ The things a screenshot-only browser tool can't do:
   Slow 3G / offline / custom bandwidth with CPU slowdown.
 - **🗂️ Real sessions.** Many concurrent sessions, incognito, **attach to your
   logged-in Chrome**, save/restore cookies + storage, and complete cache clearing.
-- **🎯 Drives the right tab, on a viewport that stays put.** The session you launch is the
-  active one; bfa **auto-follows a tab the page opens** (a game that launches in a new window
-  keeps being driven) and **self-heals** to a live tab instead of erroring when one closes.
-  Launch with `device:"mobile"` for a **stable 390×844 phone viewport** that will not
-  self-shrink, so `page_look` / `page_click_at` coordinates stay accurate.
+- **🎯 Drives the right tab, on a viewport that stays put — game after game.** The session you
+  launch is the active one and every launch loads the URL you gave (it never silently reuses an
+  earlier game's tab); bfa **auto-follows a tab the page opens** and **self-heals** a
+  detached / closed / chrome-error tab (actions re-attach and retry; `browser_recover` re-attaches
+  a stale frame or hands you a fresh tab) instead of forcing a relaunch. Launch with
+  `device:"mobile"` for a **stable 390×844 phone viewport** (touch on, so `page_tap_at` and
+  `page_batch {action:"tap_at"}` drive Cocos/canvas games) that will not self-shrink, so
+  coordinates stay accurate across a whole 12-game batch.
 - **⚡ Fast, and it never hangs.** `page_batch` runs a whole sequence in one round-trip and
   can end with a look; actions settle on *quiet* instead of fixed sleeps; `page_wait_for` /
   `net_wait` return the moment a condition holds. Every call is time-bounded: a runaway

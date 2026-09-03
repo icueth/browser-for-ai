@@ -1,5 +1,5 @@
 import type { Page } from "puppeteer-core";
-import type { SessionManager } from "../session/manager";
+import { type SessionManager, isTransportError } from "../session/manager";
 import type { Recorder } from "../recorder/recorder";
 import { netTable } from "../format/net";
 import { consoleLines } from "./console";
@@ -72,7 +72,7 @@ export async function withDelta(
   run: (recorder: Recorder, page: Page) => Promise<{ note?: string } | void>,
 ): Promise<string> {
   const recorder = mgr.recorderFor(sessionId);
-  const page = await mgr.livePageFor(sessionId);
+  let page = await mgr.livePageFor(sessionId);
   // Mark with the recorder's own counter — the SAME domain every entry.seq is
   // assigned from — captured strictly before the action dispatches any events.
   // (network.maxSeq() lives in a different, endTs-inflated domain and would drop
@@ -81,7 +81,16 @@ export async function withDelta(
   recorder.lastActionMark = mark;
   const urlBefore = safeUrl(page);
 
-  const res = await run(recorder, page);
+  let res: { note?: string } | void;
+  try {
+    res = await run(recorder, page);
+  } catch (err) {
+    // "Attempted to use detached Frame" / a torn-down CDP session: re-attach to a live page with a
+    // fresh session and retry the action ONCE, instead of surfacing the error and forcing a relaunch.
+    if (!isTransportError(err)) throw err;
+    page = await mgr.reattach(sessionId);
+    res = await run(recorder, page);
+  }
 
   await settle(recorder, mark, waitMs ?? DEFAULT_WAIT_MS);
 

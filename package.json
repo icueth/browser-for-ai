@@ -1,6 +1,6 @@
 {
   "name": "browser-for-ai",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "CDP-native MCP server that lets an AI agent drive Chrome at full depth — deep network/console read, robust interaction, multi-session, and API-flow → runnable-code extraction",
   "type": "module",
   "license": "MIT",

@@ -71,7 +71,22 @@ export function registerRecoverTools(server: McpServer, mgr: SessionManager): vo
             "recovered by disabling the page's scripts (it re-spun after termination) — page is readable/closable now; browser_recover {scripts:true} re-enables JS",
           );
         }
-        return ok("still unresponsive after terminate + scripts-off — browser_close this session (bounded; an owned Chrome is force-killed if it won't exit)");
+        // Not a pinned thread but a stale main-frame / CDP reference ("Attempted to use detached
+        // Frame")? Re-attach the recorder with a FRESH session on a live tab and re-probe. (Bounded
+        // internally, so a wedged renderer can't turn this into a 30 s stall.)
+        await mgr.reattach(sessionId).catch(() => {});
+        if (await probe(mgr, sessionId, 2500)) return ok("recovered: re-attached to the live tab (a stale frame/session reference was reset); page responsive");
+        // Last resort short of relaunch: open a CLEAN tab in the same session and drive it, so the
+        // caller can page_goto again without browser_close + browser_launch.
+        try {
+          await mgr.freshTab(sessionId);
+          if (await probe(mgr, sessionId, 2500)) {
+            return ok("the wedged tab could not be revived — switched this session to a fresh blank tab; page_goto your URL to continue (no relaunch needed)");
+          }
+        } catch {
+          // fall through to the close advice
+        }
+        return ok("still unresponsive after terminate + scripts-off + re-attach + fresh tab — browser_close this session (bounded; an owned Chrome is force-killed if it won't exit)");
       }),
   );
 }
