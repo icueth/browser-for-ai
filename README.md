@@ -411,9 +411,9 @@ browser_launch { "mode": "fresh", "incognito": true, "url": "…",
 page_set_viewport { "width": 390, "height": 844 }   // on a live session
 ```
 
-Keep `hasTouch:false` (default) so `page_click_at` (a real **mouse** click) drives
-games listening for mouse input. For touch-only games, set the viewport
-`hasTouch:true` and use `page_tap_at { x, y }`.
+`device:"mobile"` turns touch ON, so `page_tap_at` and `page_batch {action:"tap_at"}`
+drive Cocos/canvas games out of the box (mouse clicks still work). With an explicit
+`viewport` instead, `hasTouch` defaults to false — set `hasTouch:true` there if you need `page_tap_at`.
 
 ---
 
