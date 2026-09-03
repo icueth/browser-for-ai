@@ -52,7 +52,7 @@ export function registerNetWaitTools(server: McpServer, mgr: SessionManager): vo
         urlIncludes: z.string().optional().describe("substring match against the request url"),
         method: z.string().optional().describe("e.g. GET, POST"),
         status: z.number().int().optional(),
-        timeoutMs: z.number().int().positive().max(60000).optional().describe("max time to wait in ms (default 10000, max 60000)"),
+        timeoutMs: z.number().int().positive().max(300000).optional().describe("max time to wait in ms (default 10000, max 300000 = 5 min for slow first-load CDN assets)"),
         requireFinished: z.boolean().optional().describe("only match once the request has finished (default false)"),
         includeExisting: z
           .boolean()
@@ -70,7 +70,17 @@ export function registerNetWaitTools(server: McpServer, mgr: SessionManager): vo
         const afterSeq = includeExisting ? undefined : recorder.lastActionMark;
 
         for (;;) {
-          const hit = recorder.network.list({ afterSeq }).find((e) => matches(e, urlIncludes, method, status, requireFinished));
+          // Return the NEWEST match, not the oldest: on a repeated wait during asset loading, .find()
+          // kept echoing the page's own index.html (the earliest since-nav request) instead of the
+          // request that just arrived. findLast reflects the tab's latest matching activity.
+          const rows = recorder.network.list({ afterSeq });
+          let hit: (typeof rows)[number] | undefined;
+          for (let i = rows.length - 1; i >= 0; i--) {
+            if (matches(rows[i]!, urlIncludes, method, status, requireFinished)) {
+              hit = rows[i];
+              break;
+            }
+          }
           if (hit) {
             const statusLabel = hit.failed ? "FAIL" : String(hit.status ?? (hit.finished ? "-" : "…"));
             return ok(`${hit.method} ${statusLabel} ${hit.url}`);

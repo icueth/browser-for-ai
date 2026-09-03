@@ -73,4 +73,15 @@ describe.skipIf(!chromeAvailable)("net scoping: since-last-action waits and sinc
     const pending = text(await client.callTool({ name: "net_pending", arguments: { since: "nav" } }));
     expect(pending).toContain("/api/hang"); // this page's own hang, not the earlier page's
   });
+
+  it("net_wait returns the NEWEST matching request, not an earlier one with the same url", async () => {
+    await client.callTool({ name: "page_goto", arguments: { url: fixture.url } });
+    // The page load itself fetched /api/ok. Fire a SECOND /api/ok (a distinct, newer one) and make
+    // sure it is recorded, then a broad wait for "/api/ok" must return the NEWER one, not the first.
+    await client.callTool({ name: "page_eval", arguments: { expression: "fetch('/api/ok?latest-marker').catch(() => {}); 'x'" } });
+    await client.callTool({ name: "net_wait", arguments: { urlIncludes: "api/ok?latest-marker", requireFinished: true, timeoutMs: 5000, includeExisting: true } });
+    const r = await client.callTool({ name: "net_wait", arguments: { urlIncludes: "/api/ok", requireFinished: true, timeoutMs: 5000, includeExisting: true } });
+    expect(r.isError).toBeFalsy();
+    expect(text(r)).toContain("api/ok?latest-marker");
+  });
 });

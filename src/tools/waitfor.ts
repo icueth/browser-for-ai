@@ -7,7 +7,7 @@ import { ok } from "../format/compact";
 import { guard } from "./guard";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
-const MAX_TIMEOUT_MS = 60_000;
+const MAX_TIMEOUT_MS = 300_000;
 const POLL_MS = 100;
 // A request still in flight blocks "network idle" only while it is younger than this: anything older
 // is treated as a long-lived stream (long-poll, SSE, a hung call) rather than a response worth waiting for.
