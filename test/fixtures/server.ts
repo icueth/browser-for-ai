@@ -6,6 +6,7 @@ import type { AddressInfo } from "node:net";
 const PAGE = `<!doctype html><html><head><title>BFA Fixture</title><meta name="viewport" content="width=device-width, initial-scale=1"></head>
 <body><h1 id="hello">hello bfa</h1>
 <button id="openpop" onclick="window.open('/popup', '_blank')">open game</button>
+<button id="openpop2" onclick="var w=window.open();setTimeout(function(){w.location='/popup?deferred';},50)">open game deferred</button>
 <form id="login">
   <input name="user">
   <input name="pass" type="password">

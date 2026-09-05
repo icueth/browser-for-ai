@@ -38,9 +38,11 @@ const BFA_INSTRUCTIONS = [
   "  non-default profile, which bfa-chrome uses). You cannot attach to an already-open normal Chrome — no debug port.",
   "",
   "SESSIONS & TABS: the session you browser_launch is the ACTIVE one — tools without sessionId target it; a",
-  "second launch makes THAT the active one (browser_use / browser_use_tab to change). In fresh mode bfa auto-",
-  "follows a tab the page opens, so a game that launches in a new window keeps being driven. If a tool ever says",
-  "the tab is gone, it self-heals to another live tab. For phone/PG games launch with device:\"mobile\" — a stable",
+  "second launch makes THAT the active one (browser_use to change session). bfa auto-follows a tab the page opens",
+  "(window.open / target=_blank) in BOTH fresh and attach mode, so a lobby that launches the game in a new tab",
+  "keeps being driven; browser_tabs lists tabs, browser_use_tab {index} switches the driven tab (e.g. back to the",
+  "opener), browser_close_tab {index} closes one. If a tool ever says the tab is gone, it self-heals to another",
+  "live tab. For phone/PG games launch with device:\"mobile\" — a stable",
   "390x844 viewport that will NOT self-shrink (the window-tracking default can), so page_look/page_click_at",
   "coordinates stay put. net_wait only matches requests since your LAST action (an old polling call won't satisfy",
   "it; includeExisting:true to search all); net_list/net_pending take since:\"nav\" to hide earlier pages' requests.",
@@ -62,7 +64,7 @@ const BFA_INSTRUCTIONS = [
 ].join("\n");
 
 export function createServer(): { server: McpServer; mgr: SessionManager } {
-  const server = new McpServer({ name: "browser-for-ai", version: "0.5.0" }, { instructions: BFA_INSTRUCTIONS });
+  const server = new McpServer({ name: "browser-for-ai", version: "0.6.0" }, { instructions: BFA_INSTRUCTIONS });
   const mgr = new SessionManager();
   registerBrowserTools(server, mgr);
   registerPageTools(server, mgr);

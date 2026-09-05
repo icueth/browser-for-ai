@@ -273,6 +273,7 @@ export class SessionManager {
         recorder,
         ownsBrowser: false,
       });
+      this.followPopups(session);
       return await this.toInfo(session);
     } catch (err) {
       try {
@@ -417,11 +418,12 @@ export class SessionManager {
     return this.registry.list().length;
   }
 
-  /** Auto-follow tabs the driven page opens (fresh mode only — we never re-point at a tab in the
-   *  user's real Chrome). A site that opens the game in a new window would otherwise leave every
-   *  later tool driving the now-blank opener: "opened bfa and it just stalled". */
+  /** Auto-follow a tab the DRIVEN page opens (window.open / target=_blank), in BOTH fresh and attach
+   *  mode. The "popup" event fires ONLY for tabs this page opened — never for tabs the human opens by
+   *  hand — so following them is safe even in the user's real Chrome, and it's what an automation
+   *  wants: a lobby that opens the game in a new window keeps being driven instead of stranding every
+   *  later tool on the now-blank opener. */
   private followPopups(s: Session): void {
-    if (!s.ownsBrowser) return;
     s.page.on("popup", (p) => {
       if (p) void this.rebindSession(s, p);
     });
@@ -495,6 +497,30 @@ export class SessionManager {
     await this.rebindSession(s, page);
     await page.bringToFront().catch(() => {});
     return s.page;
+  }
+
+  /** Close one tab by index (from browser_tabs). If it was the driven tab, heal onto another live
+   *  one so the session stays usable. Refuses to close the last remaining tab (browser_close the
+   *  whole session instead). Returns the number of tabs left. */
+  async closeTab(index: number, id?: SessionId): Promise<{ closed: string; remaining: number }> {
+    const s = this.require(id);
+    const pages = s.mode === "attach" ? await s.browser.pages() : await s.context.pages();
+    const target = pages[index];
+    if (!target || target.isClosed()) throw new Error(`Tab ${index} is not open. Call browser_tabs to list the current tabs.`);
+    const live = pages.filter((p) => !p.isClosed());
+    if (live.length <= 1) throw new Error(`Tab ${index} is the only open tab — browser_close ${s.id} to close the whole session instead.`);
+    const closedUrl = (() => {
+      try {
+        return target.url();
+      } catch {
+        return "(unknown)";
+      }
+    })();
+    const wasDriven = target === s.page;
+    await bounded(target.close().then(() => undefined), 5000, undefined);
+    if (wasDriven) await this.ensureLivePage(s);
+    const after = (s.mode === "attach" ? await s.browser.pages() : await s.context.pages()).filter((p) => !p.isClosed());
+    return { closed: closedUrl, remaining: after.length };
   }
 
   /** Switch the driven tab to `index` (from browser_tabs), carrying recorder + intercept state. */

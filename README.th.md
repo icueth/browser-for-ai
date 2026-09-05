@@ -4,7 +4,7 @@
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)
 ![MCP](https://img.shields.io/badge/MCP-server-8A2BE2.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6.svg)
-![Tools](https://img.shields.io/badge/tools-51-0a8fa6.svg)
+![Tools](https://img.shields.io/badge/tools-52-0a8fa6.svg)
 
 [English](README.md) · **ภาษาไทย**
 
@@ -158,7 +158,7 @@ tool ส่วนใหญ่รับ `sessionId` (ไม่ใส่ = ใช�
 
 ---
 
-## รายการ tools ทั้งหมด (51)
+## รายการ tools ทั้งหมด (52)
 
 ### Session & lifecycle
 | tool | หน้าที่ |
@@ -167,7 +167,8 @@ tool ส่วนใหญ่รับ `sessionId` (ไม่ใส่ = ใช�
 | `browser_sessions` | ดู session ที่เปิดอยู่ |
 | `browser_use` | ตั้ง session เริ่มต้น |
 | `browser_tabs` | ดู tab/target ของ session |
-| `browser_use_tab` | สลับ tab ที่ขับ (ยก recorder + intercept ตามไป; fresh mode auto-follow tab ที่หน้าเปิด) |
+| `browser_use_tab` | สลับ tab ที่ขับ (ยก recorder + intercept ตามไป; auto-follow tab ที่หน้าเปิดทั้ง fresh **และ attach**) |
+| `browser_close_tab` | ปิด tab เดียวตาม index โดยไม่ปิด session (heal ไป tab อื่นถ้าปิดตัวที่กำลังขับ) |
 | `browser_close` | ปิด session (หรือ `all`) |
 | `browser_clear_cache` | ล้าง cache + cookie + storage |
 | `browser_hard_reload` | reload ข้าม cache |

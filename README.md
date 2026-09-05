@@ -4,7 +4,7 @@
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)
 ![MCP](https://img.shields.io/badge/MCP-server-8A2BE2.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6.svg)
-![Tools](https://img.shields.io/badge/tools-51-0a8fa6.svg)
+![Tools](https://img.shields.io/badge/tools-52-0a8fa6.svg)
 
 **English** · [ภาษาไทย](README.th.md)
 
@@ -167,7 +167,7 @@ if the driven one closes. Manage with `browser_sessions`, `browser_use { session
 
 ---
 
-## Tool reference (51)
+## Tool reference (52)
 
 ### Sessions & lifecycle
 | tool | purpose |
@@ -176,7 +176,8 @@ if the driven one closes. Manage with `browser_sessions`, `browser_use { session
 | `browser_sessions` | list open sessions |
 | `browser_use` | set the default session |
 | `browser_tabs` | list a session's tabs/targets |
-| `browser_use_tab` | switch the driven tab (carries recorder + intercept rules; fresh mode auto-follows opened tabs) |
+| `browser_use_tab` | switch the driven tab (carries recorder + intercept rules; bfa auto-follows page-opened tabs in fresh **and attach** mode) |
+| `browser_close_tab` | close one tab by index without closing the session (heals to a live tab if it was the driven one) |
 | `browser_close` | close one session, or `all` |
 | `browser_clear_cache` | clear cache + cookies + storage |
 | `browser_hard_reload` | bypass-cache reload |

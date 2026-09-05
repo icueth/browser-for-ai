@@ -77,4 +77,38 @@ describe.skipIf(!chromeAvailable)("tabs & healing: mobile preset, popup follow, 
     expect(text(r)).toContain("?healed");
     await client.callTool({ name: "browser_close", arguments: { all: true } });
   }, 30_000);
+
+  it("auto-follows the deferred window.open pattern (w=window.open(); w.location=url)", async () => {
+    await client.callTool({ name: "browser_launch", arguments: { mode: "fresh", headless: true, url: fixture.url } });
+    await new Promise((r) => setTimeout(r, 400));
+    await client.callTool({ name: "page_click", arguments: { selector: "#openpop2" } });
+    await new Promise((r) => setTimeout(r, 900));
+    const st = text(await client.callTool({ name: "page_state", arguments: {} }));
+    expect(st).toContain("/popup?deferred");
+    const game = text(await client.callTool({ name: "page_eval", arguments: { expression: "document.getElementById('game')?.textContent ?? 'NO'" } }));
+    expect(game).toContain("GAME WINDOW");
+    await client.callTool({ name: "browser_close", arguments: { all: true } });
+  }, 30_000);
+
+  it("browser_close_tab closes one tab; closing the opener leaves the game tab driven", async () => {
+    await client.callTool({ name: "browser_launch", arguments: { mode: "fresh", headless: true, url: fixture.url } });
+    await new Promise((r) => setTimeout(r, 400));
+    await client.callTool({ name: "page_click", arguments: { selector: "#openpop" } }); // follows the popup (tab 1)
+    await new Promise((r) => setTimeout(r, 800));
+    // Two tabs now: 0 opener, 1 game (driven). Close the opener (index 0).
+    const closed = await client.callTool({ name: "browser_close_tab", arguments: { index: 0 } });
+    expect(closed.isError).toBeFalsy();
+    expect(text(closed)).toMatch(/closed tab 0/);
+    // The game tab remains and is still driven.
+    const game = text(await client.callTool({ name: "page_eval", arguments: { expression: "document.getElementById('game')?.textContent ?? 'NO'" } }));
+    expect(game).toContain("GAME WINDOW");
+    const tabs = text(await client.callTool({ name: "browser_tabs", arguments: {} }));
+    expect(tabs).toContain("/popup");
+    expect(tabs).not.toContain("BFA Fixture");
+    // Refuses to close the last remaining tab.
+    const last = await client.callTool({ name: "browser_close_tab", arguments: { index: 0 } });
+    expect(last.isError).toBeTruthy();
+    expect(text(last)).toMatch(/only open tab/);
+    await client.callTool({ name: "browser_close", arguments: { all: true } });
+  }, 30_000);
 });

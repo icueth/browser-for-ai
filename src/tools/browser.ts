@@ -139,13 +139,27 @@ export function registerBrowserTools(server: McpServer, mgr: SessionManager): vo
     "browser_use_tab",
     {
       description:
-        "Switch the session's DRIVEN tab to another one (index from browser_tabs), carrying the network/console recorder and any intercept rules across. Use it to drive a tab the page opened that bfa did not auto-follow, or to go back to the opener. In fresh mode bfa already auto-follows tabs the page opens.",
+        "Switch the session's DRIVEN tab to another one (index from browser_tabs), carrying the network/console recorder and any intercept rules across, so page_*/net_*/page_tap_at then act on THAT tab. bfa already auto-follows a tab the page itself opens (window.open / target=_blank) in both fresh and attach mode; use this to go back to the opener, or to drive a tab that wasn't opened by the page.",
       inputSchema: { index: z.number().int().min(0), sessionId: z.string().optional() },
     },
     async ({ index, sessionId }) =>
       guard(async () => {
         const info = await mgr.useTab(index, sessionId);
         return ok(`driving tab ${index} → ${info.url ?? "about:blank"}`);
+      }),
+  );
+
+  server.registerTool(
+    "browser_close_tab",
+    {
+      description:
+        "Close ONE tab by index (from browser_tabs) without closing the session. If you close the tab currently being driven, the session heals onto another live tab. Refuses to close the last remaining tab — browser_close the whole session for that. Handy to drop a finished game's tab, or to close the opener so the game tab is the only one left.",
+      inputSchema: { index: z.number().int().min(0), sessionId: z.string().optional() },
+    },
+    async ({ index, sessionId }) =>
+      guard(async () => {
+        const r = await mgr.closeTab(index, sessionId);
+        return ok(`closed tab ${index} (${r.closed}); ${r.remaining} tab(s) left`);
       }),
   );
 
