@@ -12,6 +12,7 @@ function fakeSession(): Omit<Session, "id"> {
     page: {} as Session["page"],
     recorder: {} as Session["recorder"],
     ownsBrowser: true,
+    lastUsedAt: Date.now(),
   };
 }
 

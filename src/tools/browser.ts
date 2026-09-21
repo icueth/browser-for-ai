@@ -21,7 +21,9 @@ export function registerBrowserTools(server: McpServer, mgr: SessionManager): vo
         "`incognito` applies to fresh mode only. The session you launch becomes the ACTIVE one " +
         "(tools without sessionId target it). In fresh mode bfa auto-follows a tab the page opens " +
         "(so a game that launches in a new window keeps being driven); use browser_use_tab to switch " +
-        "manually. For phone/PG games pass device:\"mobile\" for a stable viewport.",
+        "manually. For phone/PG games pass device:\"mobile\" for a stable viewport. ONE BROWSER PER JOB: if a " +
+        "matching session is already open this REUSES it (navigating to url) instead of starting another Chrome; " +
+        "pass new:true to force a second browser. Idle sessions auto-close; browser_close when done.",
       inputSchema: {
         mode: z.enum(["fresh", "attach"]).describe("fresh = launch our own; attach = connect to a debug-port Chrome"),
         url: z.string().url().optional().describe("optional URL to open immediately"),
@@ -35,6 +37,10 @@ export function registerBrowserTools(server: McpServer, mgr: SessionManager): vo
         profile: z.string().optional().describe("fresh: profile name under ~/.bfa/profiles"),
         incognito: z.boolean().optional().describe("fresh: isolated context with no prior state"),
         headless: z.boolean().optional().describe("fresh: run headless (default false)"),
+        new: z
+          .boolean()
+          .optional()
+          .describe("fresh: force a NEW browser even if a matching session is already open (default false: the open session is reused and navigated to url — one Chrome per job)"),
         device: z
           .enum(["mobile", "desktop"])
           .optional()
@@ -59,7 +65,11 @@ export function registerBrowserTools(server: McpServer, mgr: SessionManager): vo
       guard(async () => {
         const info = await mgr.launch(args);
         const inc = info.incognito ? " incognito" : "";
-        return ok(`session ${info.sessionId} (${info.mode}${inc}) → ${info.url ?? "about:blank"}\nnow the active session: tools without sessionId target ${info.sessionId}`);
+        const head = info.reused
+          ? `reused open session ${info.sessionId} (${info.mode}${inc}) → ${info.url ?? "about:blank"}  [no new Chrome started; pass new:true to force one]`
+          : `session ${info.sessionId} (${info.mode}${inc}) → ${info.url ?? "about:blank"}`;
+        const evict = info.evicted ? `\nclosed idle session ${info.evicted} to stay within the session cap (BFA_MAX_SESSIONS)` : "";
+        return ok(`${head}${evict}\nnow the active session: tools without sessionId target ${info.sessionId}. browser_close it when the job is done.`);
       }),
   );
 
@@ -68,13 +78,15 @@ export function registerBrowserTools(server: McpServer, mgr: SessionManager): vo
     { description: "List all open browser sessions.", inputSchema: {} },
     async () =>
       guard(async () => {
+        const fmtIdle = (ms?: number): string => (ms === undefined ? "-" : ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.round(ms / 60_000)}m`);
         const rows = mgr.sessions().map((s) => [
           s.active ? `* ${s.sessionId}` : `  ${s.sessionId}`,
           s.mode + (s.incognito ? "/incognito" : ""),
+          fmtIdle(s.idleMs),
           s.url ?? "-",
         ]);
         if (rows.length === 0) return ok("no open sessions");
-        return ok(table(["id", "mode", "url"], rows));
+        return ok(table(["id", "mode", "idle", "url"], rows) + "\n(idle owned sessions auto-close after BFA_IDLE_MINUTES; browser_close {all:true} to clean up now)");
       }),
   );
 

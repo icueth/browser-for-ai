@@ -1,7 +1,7 @@
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtempSync, readdirSync, readlinkSync, rmSync, statSync } from "node:fs";
-import type { ChildProcess } from "node:child_process";
+import { execFileSync, type ChildProcess } from "node:child_process";
 import puppeteer, { type Browser, type BrowserContext, type Page, type Target } from "puppeteer-core";
 import { SessionRegistry } from "./registry";
 import { resolveChromePath } from "./chrome-path";
@@ -112,16 +112,119 @@ export function keychainOverrides(profileName: string | undefined): { ignoreDefa
   return { ignoreDefaultArgs: ["--use-mock-keychain", "--password-store=basic"] };
 }
 
+export interface ManagerOptions {
+  /** Owned (fresh) sessions nobody has touched for this long are closed automatically. 0 = never.
+   *  Env: BFA_IDLE_MINUTES (default 20). Attach sessions — the user's own Chrome — are never reaped. */
+  idleMinutes?: number;
+  /** Max concurrently open owned sessions; launching past it closes the least-recently-used one
+   *  first. 0 = unlimited. Env: BFA_MAX_SESSIONS (default 3). */
+  maxSessions?: number;
+  /** How often the idle reaper runs (ms; default 60 s). */
+  reapIntervalMs?: number;
+}
+
+function envNum(name: string, dflt: number): number {
+  const v = process.env[name];
+  if (v === undefined || v.trim() === "") return dflt;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : dflt;
+}
+
 export class SessionManager {
   private registry = new SessionRegistry();
   private flowMarks = new Map<SessionId, number>();
   private interceptors = new Map<SessionId, Interceptor>();
   private emulation = new Map<SessionId, string>();
   private locks = new Map<SessionId, Promise<void>>();
+  private readonly idleMs: number;
+  private readonly maxSessions: number;
+  private reaper: NodeJS.Timeout | undefined;
+
+  constructor(opts: ManagerOptions = {}) {
+    this.idleMs = (opts.idleMinutes ?? envNum("BFA_IDLE_MINUTES", 20)) * 60_000;
+    this.maxSessions = opts.maxSessions ?? envNum("BFA_MAX_SESSIONS", 3);
+    if (this.idleMs > 0) {
+      this.reaper = setInterval(() => void this.reapIdle(), opts.reapIntervalMs ?? 60_000);
+      this.reaper.unref();
+    }
+  }
+
+  /** Close owned sessions nobody has touched for idleMs. Field report: 8 idle Chromes / 3 GB left
+   *  open across a day because sessions lived as long as the (days-old) MCP server. */
+  async reapIdle(now = Date.now()): Promise<SessionId[]> {
+    if (this.idleMs <= 0) return [];
+    const stale = this.registry.list().filter((s) => s.ownsBrowser && now - s.lastUsedAt >= this.idleMs);
+    const removed = stale.filter((s) => this.registry.remove(s.id) !== undefined);
+    if (removed.length > 0) await this.disposeAll(removed);
+    return removed.map((s) => s.id);
+  }
 
   async launch(opts: LaunchOptions): Promise<SessionInfo> {
     if (opts.mode === "attach") return this.attach(opts);
-    return this.launchFresh(opts);
+    // REUSE by default. Re-launching for every step of the same job was leaving one Chrome per
+    // call; a matching open session is simply navigated instead. `new:true` opts out.
+    if (!opts.new) {
+      const existing = this.findReusable(opts);
+      if (existing) {
+        try {
+          return await this.reuse(existing, opts);
+        } catch {
+          // The candidate turned out dead (no usable tab) — drop it and fall through to a fresh launch.
+          this.registry.remove(existing.id);
+          await this.disposeAll([existing]);
+        }
+      }
+    }
+    // CAP: keep the number of owned browsers bounded; evict the least-recently-used one first.
+    let evicted: SessionId | undefined;
+    if (this.maxSessions > 0) {
+      const owned = this.registry
+        .list()
+        .filter((s) => s.ownsBrowser)
+        .sort((a, b) => a.lastUsedAt - b.lastUsedAt);
+      while (owned.length >= this.maxSessions) {
+        const victim = owned.shift()!;
+        this.registry.remove(victim.id);
+        await this.disposeAll([victim]);
+        evicted = victim.id;
+      }
+    }
+    const info = await this.launchFresh(opts);
+    return evicted ? { ...info, evicted } : info;
+  }
+
+  /** An open owned session with the same isolation (incognito / profile / headless) and a usable tab —
+   *  the active one if it qualifies, else the most recently used. */
+  private findReusable(opts: LaunchOptions): Session | undefined {
+    const profile = opts.profile?.trim() || undefined;
+    const incognito = opts.incognito ?? false;
+    const headless = opts.headless ?? false;
+    const match = (s: Session): boolean =>
+      s.ownsBrowser &&
+      s.mode === "fresh" &&
+      s.incognito === incognito &&
+      (s.headless ?? false) === headless &&
+      s.profile === profile &&
+      this.isUsable(s.page);
+    const active = this.registry.get();
+    if (active && match(active)) return active;
+    return this.registry
+      .list()
+      .filter(match)
+      .sort((a, b) => b.lastUsedAt - a.lastUsedAt)[0];
+  }
+
+  private async reuse(s: Session, opts: LaunchOptions): Promise<SessionInfo> {
+    this.registry.setActive(s.id);
+    s.lastUsedAt = Date.now();
+    await this.ensureLivePage(s);
+    if (opts.device || opts.viewport) await applyViewport(s.page, opts);
+    if (opts.url) {
+      // A navigation is an action: net_wait / page_wait_for measure "since your last action" from here.
+      s.recorder.lastActionMark = s.recorder.seqNow();
+      await s.page.goto(opts.url, { waitUntil: "load" });
+    }
+    return { ...(await this.toInfo(s)), reused: true };
   }
 
   private async launchFresh(opts: LaunchOptions): Promise<SessionInfo> {
@@ -151,7 +254,9 @@ export class SessionManager {
         protocolTimeout: PROTOCOL_TIMEOUT_MS,
         // Named profiles keep the real OS keystore so existing logins/cookies aren't wiped on launch.
         ...keychainOverrides(profileName),
-        args: ["--no-first-run", "--no-default-browser-check"],
+        // --bfa-server tags the Chrome with the pid of the bfa that owns it, so a later server start
+        // can kill browsers orphaned by a bfa that died without cleanup (see sweepOrphanChromes).
+        args: ["--no-first-run", "--no-default-browser-check", `--bfa-server=${process.pid}`],
         // This app owns teardown (see server.ts). @puppeteer/browsers' own SIGINT handler
         // calls process.exit(130) synchronously, which would pre-empt our async cleanup and
         // strand every temp dir on Ctrl-C.
@@ -202,6 +307,9 @@ export class SessionManager {
         page,
         recorder,
         ownsBrowser: true,
+        lastUsedAt: Date.now(),
+        profile: profileName,
+        headless: opts.headless ?? false,
         tempDir,
         cleanup,
       });
@@ -272,6 +380,7 @@ export class SessionManager {
         page,
         recorder,
         ownsBrowser: false,
+        lastUsedAt: Date.now(),
       });
       this.followPopups(session);
       return await this.toInfo(session);
@@ -294,6 +403,7 @@ export class SessionManager {
       url: safeUrl(s.page),
       title: null,
       active: s.id === activeId,
+      idleMs: Date.now() - s.lastUsedAt,
     }));
   }
 
@@ -584,6 +694,7 @@ export class SessionManager {
   }
 
   async shutdown(): Promise<void> {
+    if (this.reaper) clearInterval(this.reaper);
     await this.disposeAll(this.registry.removeAll());
   }
 
@@ -659,6 +770,7 @@ export class SessionManager {
       url: safeUrl(s.page),
       title,
       active: s.id === this.registry.activeId(),
+      idleMs: Date.now() - s.lastUsedAt,
     };
   }
 
@@ -669,6 +781,7 @@ export class SessionManager {
         id ? `No session "${id}". Call browser_sessions to list open sessions.` : "No active session. Call browser_launch first.",
       );
     }
+    s.lastUsedAt = Date.now();
     return s;
   }
 
@@ -680,6 +793,55 @@ export class SessionManager {
   private removeOne(id: SessionId | undefined): Session | undefined {
     return id === undefined ? undefined : this.registry.remove(id);
   }
+}
+
+/** Chrome processes launched by a bfa server that is no longer running. Every fresh Chrome carries
+ *  `--bfa-server=<pid>`; once that pid is dead nobody will ever close the browser (field report: five
+ *  days-old servers' Chromes, 3 GB idle). Pure parser — `ps` lines in, orphan Chrome pids out — so it
+ *  is unit-testable. Helper processes (`--type=…`) are skipped: they die with their browser. */
+export function findOrphanChromes(psLines: string, isAlive: (pid: number) => boolean, selfPid: number = process.pid): number[] {
+  const out: number[] = [];
+  for (const line of psLines.split("\n")) {
+    const m = /^\s*(\d+)\s+(.*)$/.exec(line);
+    if (!m) continue;
+    const cmd = m[2]!;
+    const tag = /--bfa-server=(\d+)/.exec(cmd);
+    if (!tag || /--type=/.test(cmd)) continue;
+    const owner = Number(tag[1]);
+    if (owner === selfPid || isAlive(owner)) continue;
+    out.push(Number(m[1]));
+  }
+  return out;
+}
+
+export function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM"; // exists, just not ours
+  }
+}
+
+/** Kill Chromes orphaned by dead bfa servers (macOS / Linux; no-op on Windows). Returns the pids killed. */
+export function sweepOrphanChromes(): number[] {
+  if (process.platform === "win32") return [];
+  let ps: string;
+  try {
+    ps = execFileSync("ps", ["-axo", "pid=,command="], { encoding: "utf8", timeout: 5000 });
+  } catch {
+    return [];
+  }
+  const killed: number[] = [];
+  for (const pid of findOrphanChromes(ps, pidAlive)) {
+    try {
+      process.kill(pid, "SIGKILL");
+      killed.push(pid);
+    } catch {
+      // already gone
+    }
+  }
+  return killed;
 }
 
 /**

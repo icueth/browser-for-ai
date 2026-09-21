@@ -151,6 +151,13 @@ browser_close { "all": true }
   เองจะทับ preset; ถ้าไม่ใส่ทั้งคู่ หน้าจะตามหน้าต่างจริง (ซึ่งหดได้)
 - **Viewport** ตอน launch หรือ `page_set_viewport { device }` / `{ width, height }` บน session ที่เปิดอยู่
 
+**หนึ่งงาน หนึ่ง Chrome** — `browser_launch` จะ **reuse** session ที่เปิดอยู่และตรงกัน (incognito / profile /
+headless เดียวกัน) แล้วแค่นำทางไป `url` ไม่เปิด Chrome เพิ่ม ใส่ `new: true` ถ้าต้องการตัวที่สองจริงๆ session
+ที่เราเปิดเองและนิ่งไม่ถูกใช้จะปิดอัตโนมัติหลัง **`BFA_IDLE_MINUTES`** (ดีฟอลต์ 20; 0 = ไม่ปิด) เปิดค้างได้สูงสุด
+**`BFA_MAX_SESSIONS`** (ดีฟอลต์ 3; 0 = ไม่จำกัด) เกินแล้วตัวที่ไม่ได้ใช้นานสุดจะถูกปิด `browser_sessions` โชว์เวลา idle
+ของแต่ละตัว และตอน server เริ่มใหม่จะเก็บกวาด Chrome กำพร้าจาก bfa ที่ตายไปแล้ว session แบบ attach (Chrome ของคุณ)
+ไม่ถูกปิดเองเด็ดขาด แต่ยังควร `browser_close { all: true }` เมื่องานเสร็จ
+
 session ที่ launch จะเป็นตัว **active**; launch ตัวใหม่ทำให้ตัวนั้น active fresh mode จะ **auto-follow tab
 ที่หน้าเปิด** และ **self-heal** ไป tab อื่นถ้า tab ที่ขับปิดไป จัดการด้วย `browser_sessions`,
 `browser_use { sessionId }`, `browser_tabs`, `browser_use_tab { index }`, `browser_close` —

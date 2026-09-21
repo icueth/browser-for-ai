@@ -116,7 +116,7 @@ describe.skipIf(!chromeAvailable)("hang-proofing e2e", () => {
   }, 40_000);
 it("browser_close {all:true} with TWO pinned sessions is bounded (parallel teardown, not N × budget)", async () => {
     const a = await client.callTool({ name: "browser_launch", arguments: { mode: "fresh", headless: true, url: fixture.url } });
-    const b = await client.callTool({ name: "browser_launch", arguments: { mode: "fresh", headless: true, url: fixture.url } });
+    const b = await client.callTool({ name: "browser_launch", arguments: { mode: "fresh", headless: true, url: fixture.url, new: true } });
     expect(a.isError).toBeFalsy();
     expect(b.isError).toBeFalsy();
     const ids = [a, b].map((r) => text(r).match(/session (s\d+)/)![1]!);

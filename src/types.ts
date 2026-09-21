@@ -19,6 +19,8 @@ export interface LaunchOptions {
    *  layout + UA) that does NOT track — and therefore never self-shrinks with — the OS window,
    *  which is the usual cause of drifting click coordinates. Overridden by an explicit `viewport`. */
   device?: "mobile" | "desktop";
+  /** fresh: force a NEW browser even when a matching session is already open (default: reuse it). */
+  new?: boolean;
   /** fresh/attach: page viewport. Puppeteer defaults to 800x600 landscape, which
    *  letterboxes portrait canvas games (Cocos/WebGL) and lets their full-screen
    *  overlay swallow coordinate clicks. Set e.g. {width:390,height:844} so the
@@ -40,6 +42,12 @@ export interface SessionInfo {
   url: string | null;
   title: string | null;
   active: boolean;
+  /** ms since the last tool call touched this session. */
+  idleMs?: number;
+  /** browser_launch returned an already-open session instead of starting a new Chrome. */
+  reused?: boolean;
+  /** browser_launch closed this least-recently-used session to stay within the session cap. */
+  evicted?: SessionId;
 }
 
 export interface Session {
@@ -52,6 +60,12 @@ export interface Session {
   recorder: Recorder;
   /** true for fresh (we launched it → we may close the browser); false for attach (disconnect only). */
   ownsBrowser: boolean;
+  /** epoch ms of the last tool call that touched this session — drives idle auto-close and LRU eviction. */
+  lastUsedAt: number;
+  /** fresh: the named profile it was launched with (undefined = ephemeral). Reuse matches on it. */
+  profile?: string;
+  /** fresh: launched headless. Reuse matches on it. */
+  headless?: boolean;
   /** set when launchFresh created an ephemeral userDataDir (no profile given); removed on teardown. */
   tempDir?: string;
   /** detaches browser-level listeners (e.g. the targetcreated dialog guard) on teardown. */

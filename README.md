@@ -159,6 +159,14 @@ browser_close { "all": true }
   overrides a preset; with neither, the page tracks the real window (which can resize).
 - **Viewport** at launch, or `page_set_viewport { device }` / `{ width, height }` on a live session.
 
+**One Chrome per job.** `browser_launch` **reuses** a matching open session (same incognito /
+profile / headless) and just navigates it to `url` — it does not start another Chrome; pass
+`new: true` to force a second browser. Owned sessions that sit idle auto-close after
+**`BFA_IDLE_MINUTES`** (default 20; 0 = never), at most **`BFA_MAX_SESSIONS`** (default 3; 0 = unlimited)
+stay open (the least-recently-used is evicted), `browser_sessions` shows each one's idle time, and a
+new server start kills Chromes orphaned by a bfa that died. Attach sessions (your own Chrome) are
+never reaped. Still: `browser_close { all: true }` when a job is done.
+
 The session you launch becomes the **active** one; a second launch makes that one active.
 In fresh mode bfa **auto-follows a tab the page opens** and **self-heals** to another live tab
 if the driven one closes. Manage with `browser_sessions`, `browser_use { sessionId }`,

@@ -37,7 +37,7 @@ describe.skipIf(!chromeAvailable)("multi-session routing: ops target the id you 
 
   it("launch always lands on the requested URL; ops route to the id passed; close closes THAT id", async () => {
     const a = await client.callTool({ name: "browser_launch", arguments: { mode: "fresh", headless: true, url: `${fixture.url}?a` } });
-    const b = await client.callTool({ name: "browser_launch", arguments: { mode: "fresh", headless: true, url: `${fixture.url}?b` } });
+    const b = await client.callTool({ name: "browser_launch", arguments: { mode: "fresh", headless: true, url: `${fixture.url}?b`, new: true } });
     const s1 = sidOf(a);
     const s2 = sidOf(b);
     expect(s1).not.toBe(s2);

@@ -77,7 +77,7 @@ describe.skipIf(!chromeAvailable)("session_save + session_restore e2e", () => {
     // New, independent fresh session — no cookies/localStorage of its own.
     const launched2 = await client.callTool({
       name: "browser_launch",
-      arguments: { mode: "fresh", headless: true },
+      arguments: { mode: "fresh", headless: true, new: true },
     });
     const launched2Text = (launched2.content as { type: string; text: string }[])[0]!.text;
     const s2Match = launched2Text.match(/^session (\S+)/);

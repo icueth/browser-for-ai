@@ -2,7 +2,7 @@ import { realpathSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { SessionManager, sweepStaleTempDirs } from "./session/manager";
+import { SessionManager, sweepStaleTempDirs, sweepOrphanChromes } from "./session/manager";
 import { registerBrowserTools } from "./tools/browser";
 import { registerPageTools } from "./tools/page";
 import { registerNetTools } from "./tools/net";
@@ -37,6 +37,11 @@ const BFA_INSTRUCTIONS = [
   '  mode:"attach", port:9222, AFTER the user starts Chrome with `./bfa-chrome 9222` (Chrome 136+ needs a',
   "  non-default profile, which bfa-chrome uses). You cannot attach to an already-open normal Chrome — no debug port.",
   "",
+  "ONE BROWSER PER JOB: browser_launch REUSES a matching open session (it just navigates it to url) — never",
+  "launch once per step; pass new:true only when you truly need a second browser. browser_close {all:true}",
+  "when the job is done. Idle sessions auto-close after BFA_IDLE_MINUTES (20) and at most BFA_MAX_SESSIONS (3)",
+  "stay open (the least-recently-used is evicted). browser_sessions shows each session's idle time.",
+  "",
   "SESSIONS & TABS: the session you browser_launch is the ACTIVE one — tools without sessionId target it; a",
   "second launch makes THAT the active one (browser_use to change session). bfa auto-follows a tab the page opens",
   "(window.open / target=_blank) in BOTH fresh and attach mode, so a lobby that launches the game in a new tab",
@@ -64,7 +69,7 @@ const BFA_INSTRUCTIONS = [
 ].join("\n");
 
 export function createServer(): { server: McpServer; mgr: SessionManager } {
-  const server = new McpServer({ name: "browser-for-ai", version: "0.6.1" }, { instructions: BFA_INSTRUCTIONS });
+  const server = new McpServer({ name: "browser-for-ai", version: "0.7.0" }, { instructions: BFA_INSTRUCTIONS });
   const mgr = new SessionManager();
   registerBrowserTools(server, mgr);
   registerPageTools(server, mgr);
@@ -95,6 +100,7 @@ export function createServer(): { server: McpServer; mgr: SessionManager } {
 async function main(): Promise<void> {
   // SIGKILL and crashes always defeat in-process cleanup, so reclaim earlier runs' leftovers.
   sweepStaleTempDirs();
+  sweepOrphanChromes();
 
   const { server, mgr } = createServer();
 
