@@ -196,7 +196,7 @@ if the driven one closes. Manage with `browser_sessions`, `browser_use { session
 | `page_wait_for` | wait until a selector / text / URL / network-idle condition holds (instead of sleeping) |
 | `page_observe` | delta since last observe — new console/network/URL/DOM |
 | `page_screenshot` | PNG of viewport, full page, or one element |
-| `page_eval` | evaluate JS in the page, return the value |
+| `page_eval` | evaluate JS in the page → value; opt-in `delta:true` (network/console side-effects) + `screenshot:true` (viewport image) in one call |
 
 ### Interaction
 | tool | purpose |

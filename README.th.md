@@ -187,7 +187,7 @@ tool ส่วนใหญ่รับ `sessionId` (ไม่ใส่ = ใช�
 | `page_wait_for` | รอจน selector / ข้อความ / URL / network-idle เป็นจริง (แทน sleep) |
 | `page_observe` | delta ตั้งแต่ครั้งก่อน (console/network/URL/DOM) |
 | `page_screenshot` | PNG ของ viewport / เต็มหน้า / element เดียว |
-| `page_eval` | รัน JS ในหน้า แล้วคืนค่า |
+| `page_eval` | รัน JS ในหน้า → คืนค่า; เปิด `delta:true` (side-effect network/console) + `screenshot:true` (ภาพ viewport) ได้ในคราวเดียว |
 
 ### โต้ตอบหน้าเว็บ
 | tool | หน้าที่ |

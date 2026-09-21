@@ -5,3 +5,6 @@ dist/
 .bfa/
 .superpowers/
 .mcp.json
+
+# AgentSpace — local notes/credentials, never commit
+CLAUDE.local.md

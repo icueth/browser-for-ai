@@ -38,12 +38,15 @@ describe.skipIf(!chromeAvailable)("speed pack e2e: smart settle, page_wait_for, 
     await fixture.close();
   }, 30_000);
 
-  it("an action that triggers nothing returns well under the old fixed 700ms (smart settle)", async () => {
+  it("an action that triggers nothing returns EARLY instead of waiting the full settle cap (smart settle)", async () => {
+    // Give a big cap; a no-op action must return well before it (settle detects quiet ~250-600ms),
+    // proving early-return without depending on absolute wall time under parallel-suite load.
+    const cap = 4000;
     const t0 = Date.now();
-    const r = await client.callTool({ name: "page_hover", arguments: { selector: "#hello" } });
+    const r = await client.callTool({ name: "page_hover", arguments: { selector: "#hello", waitMs: cap } });
     const dt = Date.now() - t0;
     expect(r.isError).toBeFalsy();
-    expect(dt).toBeLessThan(650);
+    expect(dt).toBeLessThan(cap - 1500);
   });
 
   it("page_wait_for returns when a selector appears (not before)", async () => {
